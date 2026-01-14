@@ -1410,15 +1410,38 @@ class MeshHandler:
                     
                     # Check if name appears in the line (could be at start or anywhere)
                     # Also check if the line starts with the name (most common case)
-                    if name_stripped in line_stripped or line_stripped.startswith(name_stripped):
-                        print(f"[DEBUG] ✓ Found line with name '{name_stripped}': {line_stripped}")
+                    # Use word boundary to ensure we match the full name, not a substring
+                    # The line format is: "name <spaces> type <spaces> node_id"
+                    # So we need to check if the line starts with the name followed by whitespace or end
+                    # More robust matching: check if first word of line matches the name
+                    first_word = line_stripped.split()[0] if line_stripped.split() else ""
+                    name_match = (
+                        line_stripped.startswith(name_stripped) or
+                        first_word == name_stripped or
+                        name_stripped in line_stripped or
+                        re.match(r'^' + re.escape(name_stripped) + r'(\s|$)', line_stripped)
+                    )
+                    
+                    if name_match:
+                        print(f"[DEBUG] ✓ Found line with name '{name_stripped}' (first word: '{first_word}'): {line_stripped}")
                         # Try to extract node ID - it's usually a hex string (8+ chars)
                         # Look for hex strings that are likely node IDs
                         # Pattern: name, then spaces, then type, then spaces, then node_id
                         # The node_id is typically 8-16 hex characters
                         # Split by whitespace - filter out empty strings
+                        # IMPORTANT: Use the original line (not stripped) to preserve spacing for splitting
                         parts = [p.strip() for p in line.split() if p.strip()]
                         print(f"[DEBUG] Line parts: {parts}")
+                        
+                        # Verify the first part matches the name (accounting for any differences)
+                        if parts and parts[0].strip() != name_stripped:
+                            # Sometimes the name in the line might have slight differences
+                            # Check if they're close enough (e.g., one has trailing space that got stripped)
+                            first_part_clean = parts[0].strip()
+                            if first_part_clean == name_stripped:
+                                print(f"[DEBUG] Name matches after cleaning: '{first_part_clean}' == '{name_stripped}'")
+                            else:
+                                print(f"[DEBUG] WARNING: First part '{first_part_clean}' doesn't match name '{name_stripped}', but continuing anyway...")
                         
                         # Look for the type (CLI, REP, etc.) and get the node ID after it
                         for i, part in enumerate(parts):
