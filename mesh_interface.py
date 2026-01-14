@@ -157,26 +157,39 @@ class MeshHandler:
                 
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id and message:
-                    # Strip whitespace from node_id
-                    node_id = node_id.strip()
+                    # Strip whitespace from node_id (this is the name from the message)
+                    name_from_message = node_id.strip()
                     
-                    # Get the actual node ID from contacts list for this name
-                    # We need to use node ID for sending, not the name
-                    node_id_actual = self._get_node_id_from_name(node_id)
+                    # ALWAYS get the actual node ID from contacts list
+                    # NEVER use the name for sending - it will always fail
+                    node_id_actual = self._get_node_id_from_name(name_from_message)
                     if node_id_actual:
-                        print(f"[DEBUG] Mapped name '{node_id}' to node ID '{node_id_actual}'")
-                        # Store both name and node ID
-                        if node_id not in self.friends:
-                            self.friends.add(node_id)
-                        # Use node ID for sending, but keep name for display
+                        print(f"[DEBUG] Mapped name '{name_from_message}' to node ID '{node_id_actual}'")
+                        # Store node ID in friends (use node ID, not name)
+                        if node_id_actual not in self.friends:
+                            self.friends.add(node_id_actual)
+                        print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (node ID: '{node_id_actual}'), Message: '{message}'")
+                        # ALWAYS return the node ID, never the name
                         return (node_id_actual, message)
                     else:
-                        # If we can't find node ID, still track the name
-                        if node_id not in self.friends:
-                            print(f"[DEBUG] Adding new friend: '{node_id}' (node ID not found in contacts)")
-                            self.friends.add(node_id)
-                        print(f"[MESSAGE RECEIVED] From: '{node_id}', Message: '{message}'")
-                        return (node_id, message)
+                        # CRITICAL: If we can't find node ID, we MUST query contacts list directly
+                        # Do NOT return the name - it will fail
+                        print(f"[DEBUG] ERROR: Could not find node ID for name '{name_from_message}'")
+                        print(f"[DEBUG] Querying contacts list directly to find node ID...")
+                        # Query contacts list and parse it to find the node ID
+                        node_id_from_contacts = self._extract_node_id_from_contacts_list(name_from_message)
+                        if node_id_from_contacts:
+                            print(f"[DEBUG] Found node ID '{node_id_from_contacts}' from contacts list")
+                            if node_id_from_contacts not in self.friends:
+                                self.friends.add(node_id_from_contacts)
+                            print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (node ID: '{node_id_from_contacts}'), Message: '{message}'")
+                            return (node_id_from_contacts, message)
+                        else:
+                            print(f"[DEBUG] CRITICAL ERROR: Cannot find node ID for '{name_from_message}' - message cannot be replied to")
+                            # Still return something so the message is processed, but log the error
+                            print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (NO NODE ID FOUND), Message: '{message}'")
+                            # Return None for node_id to indicate we can't reply
+                            return (None, message)
                 else:
                     print(f"[DEBUG] Could not parse message from output: {output}")
             
@@ -270,7 +283,13 @@ class MeshHandler:
             
             # Send via MeshCore CLI using msg command
             # Format: msg <node_id> <message>
-            # MUST use node ID, not name
+            # CRITICAL: MUST use node ID (hex string), NEVER use name
+            # Verify node_id is actually a node ID (hex string), not a name
+            if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
+                print(f"[DEBUG] CRITICAL ERROR: node_id '{node_id}' is not a valid node ID - CANNOT SEND")
+                return
+            
+            print(f"[DEBUG] Sending to node ID: '{node_id}' (verified as hex string)")
             cmd = self._build_meshcli_cmd("msg", node_id, message)
             print(f"[DEBUG] Sending command: {' '.join(cmd)}")
             result = subprocess.run(
