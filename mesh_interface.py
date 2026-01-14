@@ -159,13 +159,24 @@ class MeshHandler:
                 if node_id and message:
                     # Strip whitespace from node_id
                     node_id = node_id.strip()
-                    if node_id not in self.friends:
-                        print(f"[DEBUG] Adding new friend: '{node_id}'")
-                        self.friends.add(node_id)
-                        # Try to add as contact in MeshCore
-                        self._ensure_contact(node_id)
-                    print(f"[MESSAGE RECEIVED] From: '{node_id}', Message: '{message}'")
-                    return (node_id, message)
+                    
+                    # Get the actual node ID from contacts list for this name
+                    # We need to use node ID for sending, not the name
+                    node_id_actual = self._get_node_id_from_name(node_id)
+                    if node_id_actual:
+                        print(f"[DEBUG] Mapped name '{node_id}' to node ID '{node_id_actual}'")
+                        # Store both name and node ID
+                        if node_id not in self.friends:
+                            self.friends.add(node_id)
+                        # Use node ID for sending, but keep name for display
+                        return (node_id_actual, message)
+                    else:
+                        # If we can't find node ID, still track the name
+                        if node_id not in self.friends:
+                            print(f"[DEBUG] Adding new friend: '{node_id}' (node ID not found in contacts)")
+                            self.friends.add(node_id)
+                        print(f"[MESSAGE RECEIVED] From: '{node_id}', Message: '{message}'")
+                        return (node_id, message)
                 else:
                     print(f"[DEBUG] Could not parse message from output: {output}")
             
@@ -196,13 +207,26 @@ class MeshHandler:
         # Strip whitespace from node_id immediately
         node_id = node_id.strip()
         print(f"[DEBUG] send() called: node_id='{node_id}', text length={len(text)}")
+        
+        # ALWAYS use node ID for sending, not the name
+        # If node_id looks like a name (not a hex string), look up the node ID
+        # Node IDs are typically hex strings (8+ chars) or start with !
+        if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
+            print(f"[DEBUG] '{node_id}' looks like a name, looking up node ID from contacts...")
+            node_id_actual = self._get_node_id_from_name(node_id)
+            if node_id_actual:
+                print(f"[DEBUG] Using node ID '{node_id_actual}' instead of name '{node_id}'")
+                node_id = node_id_actual
+            else:
+                print(f"[DEBUG] ERROR: Could not find node ID for '{node_id}' - message may fail!")
+        
         # Sanitize message
         sanitized = self._sanitize_message(text)
         print(f"[DEBUG] Sanitized message: {sanitized[:100]}...")
         
-        # Add to queue (with cleaned node_id)
+        # Add to queue (with node_id - should be actual node ID now)
         self.message_queue.put((node_id, sanitized))
-        print(f"[DEBUG] Message queued. Queue size: {self.message_queue.qsize()}")
+        print(f"[DEBUG] Message queued with node_id='{node_id}'. Queue size: {self.message_queue.qsize()}")
         
         # Try to process queue if interval allows
         self._process_queue()
@@ -1358,22 +1382,25 @@ class MeshHandler:
                         # Look for hex strings that are likely node IDs
                         # Pattern: name, then spaces, then type, then spaces, then node_id
                         # The node_id is typically 8-16 hex characters
-                        parts = line.split()
+                        # Split by whitespace - filter out empty strings
+                        parts = [p.strip() for p in line.split() if p.strip()]
+                        print(f"[DEBUG] Line parts: {parts}")
+                        
+                        # Look for the type (CLI, REP, etc.) and get the node ID after it
                         for i, part in enumerate(parts):
                             # Node ID is usually after the type (CLI, REP, etc.)
                             # and is a hex string
                             if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                node_id_candidate = parts[i + 1]
+                                node_id_candidate = parts[i + 1].strip()
                                 # Check if it looks like a node ID (hex string, 8+ chars)
                                 if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
                                     node_id = node_id_candidate
-                                    # Try with ! prefix (some formats use ! prefix)
-                                    node_id_with_prefix = f"!{node_id}"
-                                    print(f"[DEBUG] Found node ID '{node_id}' (will try '{node_id}' and '{node_id_with_prefix}')")
+                                    print(f"[DEBUG] Found node ID '{node_id}' after type '{part}'")
                                     return node_id
                         
-                        # Fallback: try to find any hex string in the line
-                        node_id_match = re.search(r'([a-fA-F0-9]{8,})', line)
+                        # Fallback: try to find any hex string in the line (8+ chars)
+                        # Use word boundary to avoid partial matches
+                        node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
                         if node_id_match:
                             node_id = node_id_match.group(1)
                             print(f"[DEBUG] Found node ID '{node_id}' using fallback regex")
