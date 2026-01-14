@@ -1362,7 +1362,10 @@ class MeshHandler:
         """
         name = name.strip()
         if not name:
+            print(f"[DEBUG] _get_node_id_from_name: Empty name provided")
             return None
+        
+        print(f"[DEBUG] _get_node_id_from_name: Looking up node ID for name '{name}'")
         
         try:
             # Get contacts list
@@ -1391,9 +1394,12 @@ class MeshHandler:
                     line_stripped = line.strip()
                     name_stripped = name.strip()
                     
+                    print(f"[DEBUG] Checking if name '{name_stripped}' is in line: '{line_stripped[:50]}...'")
+                    
                     # Check if name appears in the line (could be at start or anywhere)
-                    if name_stripped in line_stripped:
-                        print(f"[DEBUG] Found line with name '{name_stripped}': {line_stripped}")
+                    # Also check if the line starts with the name (most common case)
+                    if name_stripped in line_stripped or line_stripped.startswith(name_stripped):
+                        print(f"[DEBUG] ✓ Found line with name '{name_stripped}': {line_stripped}")
                         # Try to extract node ID - it's usually a hex string (8+ chars)
                         # Look for hex strings that are likely node IDs
                         # Pattern: name, then spaces, then type, then spaces, then node_id
@@ -1408,22 +1414,40 @@ class MeshHandler:
                             # and is a hex string
                             if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
                                 node_id_candidate = parts[i + 1].strip()
+                                print(f"[DEBUG] Checking candidate '{node_id_candidate}' after type '{part}'")
                                 # Check if it looks like a node ID (hex string, 8+ chars)
                                 if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
                                     node_id = node_id_candidate
-                                    print(f"[DEBUG] Found node ID '{node_id}' after type '{part}'")
+                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}'")
                                     return node_id
+                                else:
+                                    print(f"[DEBUG] Candidate '{node_id_candidate}' doesn't match hex pattern")
                         
                         # Fallback: try to find any hex string in the line (8+ chars)
                         # Use word boundary to avoid partial matches
+                        print(f"[DEBUG] Trying fallback regex to find hex string...")
                         node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
                         if node_id_match:
                             node_id = node_id_match.group(1)
-                            print(f"[DEBUG] Found node ID '{node_id}' using fallback regex")
+                            print(f"[DEBUG] ✓ Found node ID '{node_id}' using fallback regex")
                             return node_id
                         
-                        print(f"[DEBUG] WARNING: Could not extract node ID from line: {line}")
+                        print(f"[DEBUG] ✗✗✗ WARNING: Could not extract node ID from line: {line}")
                         print(f"[DEBUG] Parts were: {parts}")
+                    else:
+                        print(f"[DEBUG] Name '{name_stripped}' not found in line (checked: '{line_stripped[:50]}...')")
+                        # Try a more flexible match - check if name starts the line (after stripping)
+                        if line_stripped.startswith(name_stripped):
+                            print(f"[DEBUG] Line starts with name, trying extraction anyway...")
+                            parts = [p.strip() for p in line.split() if p.strip()]
+                            print(f"[DEBUG] Line parts: {parts}")
+                            for i, part in enumerate(parts):
+                                if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
+                                    node_id_candidate = parts[i + 1].strip()
+                                    if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
+                                        node_id = node_id_candidate
+                                        print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}' (flexible match)")
+                                        return node_id
                 
                 # If not found, try parsing as JSON
                 try:
