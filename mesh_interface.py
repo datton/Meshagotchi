@@ -252,14 +252,25 @@ class MeshHandler:
             node_id = node_id.strip()
             print(f"[DEBUG] Processing queue: sending to '{node_id}', message: {message[:100]}...")
             
+            # ALWAYS use node ID, not name - look it up if needed
+            # If node_id looks like a name (not a hex string), look up the node ID
+            if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
+                print(f"[DEBUG] '{node_id}' in queue looks like a name, looking up node ID...")
+                node_id_actual = self._get_node_id_from_name(node_id)
+                if node_id_actual:
+                    print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', using node ID")
+                    node_id = node_id_actual
+                else:
+                    print(f"[DEBUG] ERROR: Could not find node ID for '{node_id}' - will try anyway but may fail")
+            
             # Ensure the contact is added before sending
             if node_id not in self.friends:
                 print(f"[DEBUG] Node '{node_id}' not in friends list, adding as contact...")
                 self._ensure_contact(node_id)
             
             # Send via MeshCore CLI using msg command
-            # Format: msg <name> <message>
-            # Note: node_id might be a name or node ID - meshcli handles both
+            # Format: msg <node_id> <message>
+            # MUST use node ID, not name
             cmd = self._build_meshcli_cmd("msg", node_id, message)
             print(f"[DEBUG] Sending command: {' '.join(cmd)}")
             result = subprocess.run(
@@ -1376,8 +1387,13 @@ class MeshHandler:
                         continue
                     
                     # Check if this line contains the name we're looking for
-                    if name in line:
-                        print(f"[DEBUG] Found line with name: {line}")
+                    # Strip the line and compare - name might be at the start
+                    line_stripped = line.strip()
+                    name_stripped = name.strip()
+                    
+                    # Check if name appears in the line (could be at start or anywhere)
+                    if name_stripped in line_stripped:
+                        print(f"[DEBUG] Found line with name '{name_stripped}': {line_stripped}")
                         # Try to extract node ID - it's usually a hex string (8+ chars)
                         # Look for hex strings that are likely node IDs
                         # Pattern: name, then spaces, then type, then spaces, then node_id
@@ -1405,6 +1421,9 @@ class MeshHandler:
                             node_id = node_id_match.group(1)
                             print(f"[DEBUG] Found node ID '{node_id}' using fallback regex")
                             return node_id
+                        
+                        print(f"[DEBUG] WARNING: Could not extract node ID from line: {line}")
+                        print(f"[DEBUG] Parts were: {parts}")
                 
                 # If not found, try parsing as JSON
                 try:
