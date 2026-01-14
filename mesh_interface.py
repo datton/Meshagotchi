@@ -449,7 +449,55 @@ class MeshHandler:
             
             applied_settings = []
             
-            # First, try preset/region commands if available
+            # First, try the combined radio command format: set radio freq,bw,sf,cr
+            # Format: set radio <freq_MHz>,<bw_kHz>,<spreading_factor>,<coding_rate>
+            combined_radio_command = f"{freq_mhz},{bw_khz},{preset['spreading_factor']},{preset['coding_rate']}"
+            combined_commands = [
+                ("set radio", self._build_meshcli_cmd("set", "radio", combined_radio_command)),
+                ("set-radio", self._build_meshcli_cmd("set-radio", combined_radio_command)),
+                ("radio", self._build_meshcli_cmd("radio", combined_radio_command)),
+            ]
+            
+            combined_success = False
+            for cmd_name, cmd in combined_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    # Check for error events
+                    output = (result.stdout or "") + (result.stderr or "")
+                    if "EventType.ERROR" in output or "command_error" in output:
+                        continue
+                    if result.returncode == 0:
+                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                            print(f"  ✓ Applied radio settings using '{cmd_name}' command: {combined_radio_command}")
+                            combined_success = True
+                            time.sleep(1.5)  # Wait for settings to apply
+                            break
+                except:
+                    continue
+            
+            # If combined command worked, verify it applied correctly
+            if combined_success:
+                time.sleep(1.0)
+                current_info = self.get_radio_link_info()
+                if current_info:
+                    import json
+                    try:
+                        config = json.loads(current_info)
+                        freq_ok = abs(config.get('radio_freq', 0) - freq_mhz) < 0.1
+                        bw_ok = abs(config.get('radio_bw', 0) - bw_khz) < 1.0
+                        sf_ok = config.get('radio_sf', 0) == preset['spreading_factor']
+                        if freq_ok and bw_ok and sf_ok:
+                            print("  Radio settings verified successfully!")
+                            return True
+                    except:
+                        pass
+            
+            # Try preset/region commands if combined command didn't work
             preset_commands = [
                 ("preset", self._build_meshcli_cmd("preset", "usa")),
                 ("preset", self._build_meshcli_cmd("preset", "usa-canada")),
