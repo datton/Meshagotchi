@@ -89,14 +89,24 @@ class MeshAgotchiDaemon:
                 
                 if message:
                     sender_node_id, command_text = message
-                    print(f"[{datetime.now()}] Received from {sender_node_id}: {command_text}")
+                    print(f"[{datetime.now()}] *** MESSAGE RECEIVED ***")
+                    print(f"  From: {sender_node_id}")
+                    print(f"  Command: {command_text}")
                     
                     # Process command
+                    print(f"[DEBUG] Processing command with game engine...")
                     response = self.game_engine.process_command(sender_node_id, command_text)
+                    print(f"[DEBUG] Game engine response: {response[:200]}...")
                     
                     # Send response
-                    self.mesh_handler.send(sender_node_id, response)
-                    print(f"[{datetime.now()}] Sent to {sender_node_id}: {response[:50]}...")
+                    if response:
+                        print(f"[DEBUG] Sending response to {sender_node_id}...")
+                        self.mesh_handler.send(sender_node_id, response)
+                        print(f"[{datetime.now()}] *** RESPONSE SENT ***")
+                        print(f"  To: {sender_node_id}")
+                        print(f"  Response: {response[:100]}...")
+                    else:
+                        print(f"[DEBUG] No response to send (response was empty)")
                 
                 # Process pending messages in queue
                 self.mesh_handler.process_pending_messages()

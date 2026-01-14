@@ -98,15 +98,26 @@ class MeshHandler:
         """
         try:
             # Use recv command to get next message
+            cmd = self._build_meshcli_cmd("recv")
+            print(f"[DEBUG] Listening for messages: {' '.join(cmd)}")
             result = subprocess.run(
-                self._build_meshcli_cmd("recv"),
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=1.0  # Non-blocking check
+                timeout=2.0  # Increased timeout to catch messages
             )
             
-            if result.returncode == 0 and result.stdout.strip():
-                output = result.stdout.strip()
+            stdout_text = result.stdout.strip() if result.stdout else ""
+            stderr_text = result.stderr.strip() if result.stderr else ""
+            
+            print(f"[DEBUG] recv exit code: {result.returncode}")
+            if stdout_text:
+                print(f"[DEBUG] recv stdout: {stdout_text}")
+            if stderr_text:
+                print(f"[DEBUG] recv stderr: {stderr_text}")
+            
+            if result.returncode == 0 and stdout_text:
+                output = stdout_text
                 
                 # MeshCore CLI format: name(hop): message
                 # Example: "Meshagotchi(0): /help" or "t114_fdl(D): Hello"
@@ -123,6 +134,7 @@ class MeshHandler:
                     if node_match and msg_match:
                         node_id = node_match.group(1)
                         message = msg_match.group(1)
+                        print(f"[DEBUG] Parsed JSON format: node_id={node_id}, message={message}")
                 else:
                     # Parse MeshCore format: name(hop): message
                     # Match pattern like "name(hop): message" or "name: message"
@@ -130,6 +142,7 @@ class MeshHandler:
                     if match:
                         node_id = match.group(1).strip()
                         message = match.group(2).strip()
+                        print(f"[DEBUG] Parsed regex format: node_id={node_id}, message={message}")
                     elif ":" in output:
                         # Fallback: simple split on colon
                         parts = output.split(":", 1)
@@ -138,23 +151,32 @@ class MeshHandler:
                             # Remove hop indicator if present: "name(hop)" -> "name"
                             node_id = re.sub(r'\([^)]+\)', '', node_id).strip()
                             message = parts[1].strip()
+                        print(f"[DEBUG] Parsed split format: node_id={node_id}, message={message}")
                 
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
-                if node_id:
+                if node_id and message:
                     if node_id not in self.friends:
+                        print(f"[DEBUG] Adding new friend: {node_id}")
                         self.friends.add(node_id)
+                    print(f"[MESSAGE RECEIVED] From: {node_id}, Message: {message}")
                     return (node_id, message)
+                else:
+                    print(f"[DEBUG] Could not parse message from output: {output}")
             
             return None
             
         except subprocess.TimeoutExpired:
+            # Timeout is normal when no messages are available
             return None
         except FileNotFoundError:
             # MeshCore CLI not found - return None (will be handled in main)
+            print("[DEBUG] MeshCore CLI not found")
             return None
         except Exception as e:
             # Log error but don't crash
-            print(f"Error listening for messages: {e}")
+            print(f"[ERROR] Error listening for messages: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def send(self, node_id: str, text: str):
@@ -165,11 +187,14 @@ class MeshHandler:
             node_id: Target Node ID (e.g., "!a1b2c3")
             text: Message text to send
         """
+        print(f"[DEBUG] send() called: node_id={node_id}, text length={len(text)}")
         # Sanitize message
         sanitized = self._sanitize_message(text)
+        print(f"[DEBUG] Sanitized message: {sanitized[:100]}...")
         
         # Add to queue
         self.message_queue.put((node_id, sanitized))
+        print(f"[DEBUG] Message queued. Queue size: {self.message_queue.qsize()}")
         
         # Try to process queue if interval allows
         self._process_queue()
@@ -185,35 +210,59 @@ class MeshHandler:
             time_since_last = (now - self.last_send_time).total_seconds()
             if time_since_last < self.min_send_interval:
                 # Too soon, wait
+                print(f"[DEBUG] Rate limiting: {time_since_last:.2f}s since last send, need {self.min_send_interval}s")
                 return
         
         # Send next message from queue
         try:
             node_id, message = self.message_queue.get_nowait()
+            print(f"[DEBUG] Processing queue: sending to {node_id}, message: {message[:100]}...")
             
             # Send via MeshCore CLI using msg command
             # Format: msg <name> <message>
             # Note: node_id might be a name or node ID - meshcli handles both
+            cmd = self._build_meshcli_cmd("msg", node_id, message)
+            print(f"[DEBUG] Sending command: {' '.join(cmd)}")
             result = subprocess.run(
-                self._build_meshcli_cmd("msg", node_id, message),
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=5.0
             )
             
+            stdout_text = result.stdout.strip() if result.stdout else ""
+            stderr_text = result.stderr.strip() if result.stderr else ""
+            
+            print(f"[DEBUG] msg exit code: {result.returncode}")
+            if stdout_text:
+                print(f"[DEBUG] msg stdout: {stdout_text}")
+            if stderr_text:
+                print(f"[DEBUG] msg stderr: {stderr_text}")
+            
             if result.returncode == 0:
                 self.last_send_time = now
+                print(f"[MESSAGE SENT] To: {node_id}, Message: {message[:100]}...")
             else:
                 # Failed to send - put back in queue?
                 # For now, just log error
-                print(f"Failed to send message: {result.stderr}")
+                print(f"[ERROR] Failed to send message to {node_id}: {stderr_text}")
+                # Put message back in queue to retry
+                self.message_queue.put((node_id, message))
                 
         except subprocess.TimeoutExpired:
-            print("Timeout sending message via MeshCore CLI")
+            print("[ERROR] Timeout sending message via MeshCore CLI")
+            # Put message back in queue to retry
+            if 'node_id' in locals() and 'message' in locals():
+                self.message_queue.put((node_id, message))
         except FileNotFoundError:
-            print("MeshCore CLI not found. Install meshcore-cli.")
+            print("[ERROR] MeshCore CLI not found. Install meshcore-cli.")
         except Exception as e:
-            print(f"Error sending message: {e}")
+            print(f"[ERROR] Error sending message: {e}")
+            import traceback
+            traceback.print_exc()
+            # Put message back in queue to retry
+            if 'node_id' in locals() and 'message' in locals():
+                self.message_queue.put((node_id, message))
     
     def _sanitize_message(self, text: str) -> str:
         """
