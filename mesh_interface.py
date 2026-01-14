@@ -8,8 +8,9 @@ to prevent network flooding. Designed for Heltec V3 LoRa radio.
 import subprocess
 import time
 import re
+import json
 from queue import Queue
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from datetime import datetime, timedelta
 
 
@@ -81,6 +82,77 @@ class MeshHandler:
         else:
             print("[DEBUG] Warning: No serial port specified, meshcli may default to BLE")
         self.friends = set()  # Track discovered nodes as friends
+
+        # Cache for contacts mapping (adv_name -> public_key). Avoid shelling out to meshcli
+        # on every recv/send. TTL is short because contacts can change.
+        self._contacts_cache_ts = 0.0
+        self._contacts_cache_ttl_s = 10.0
+        self._contacts_cache_name_to_pubkey: Dict[str, str] = {}
+
+    def _get_contacts_name_to_pubkey_map(self, force_refresh: bool = False) -> Dict[str, str]:
+        """
+        Query MeshCore contacts via JSON (`meshcli -j contacts`) and build a mapping:
+        normalized adv_name -> normalized public_key.
+
+        We prefer this over parsing the text table because the JSON output is stable and
+        includes the true public key (hex destination) directly.
+        """
+        now = time.time()
+        if (
+            not force_refresh
+            and self._contacts_cache_name_to_pubkey
+            and (now - self._contacts_cache_ts) < self._contacts_cache_ttl_s
+        ):
+            return self._contacts_cache_name_to_pubkey
+
+        try:
+            result = subprocess.run(
+                self._build_meshcli_cmd("contacts", json_output=True),
+                capture_output=True,
+                text=True,
+                timeout=5.0,
+            )
+            if result.returncode != 0 or not result.stdout:
+                return {}
+
+            payload = json.loads(result.stdout)
+            if not isinstance(payload, dict):
+                return {}
+
+            mapping: Dict[str, str] = {}
+            for public_key, info in payload.items():
+                if not isinstance(public_key, str) or not isinstance(info, dict):
+                    continue
+
+                # JSON shows adv_name (human name) and public_key (hex id). Key is also public key.
+                adv_name = info.get("adv_name") or info.get("name")
+                if not isinstance(adv_name, str) or not adv_name.strip():
+                    continue
+
+                name_norm = _normalize_meshcli_text(adv_name)
+                pub_norm = _normalize_meshcli_text(public_key).lstrip("!").lower()
+                if not re.fullmatch(r"[a-f0-9]{8,}", pub_norm):
+                    continue
+                mapping[name_norm] = pub_norm
+
+            # Cache
+            self._contacts_cache_ts = now
+            self._contacts_cache_name_to_pubkey = mapping
+
+            # Store in DB for persistence across restarts (best effort)
+            if mapping:
+                try:
+                    import database
+                    for n, k in mapping.items():
+                        database.store_contact(n, k)
+                except Exception as e:
+                    print(f"[DEBUG] Error storing contacts mapping in database: {e}")
+
+            return mapping
+
+        except Exception as e:
+            print(f"[DEBUG] Error getting JSON contacts mapping: {e}")
+            return {}
     
     def _build_meshcli_cmd(self, *args, json_output: bool = False) -> list:
         """
@@ -1413,6 +1485,13 @@ class MeshHandler:
             return None
         
         print(f"[DEBUG] _extract_node_id_from_contacts_list: Looking up node ID for name '{name}'")
+
+        # Prefer JSON contacts: stable + includes public key directly.
+        name_to_pub = self._get_contacts_name_to_pubkey_map()
+        if name in name_to_pub:
+            node_id = name_to_pub[name]
+            print(f"[DEBUG] Found node ID '{node_id}' for name '{name}' via JSON contacts")
+            return node_id
         
         try:
             # Query contacts list directly
@@ -1494,6 +1573,16 @@ class MeshHandler:
         # If it already looks like a node id, just return it.
         if re.fullmatch(r"!?[a-fA-F0-9]{8,}", name):
             return name.lstrip("!").lower()
+
+        # Prefer JSON contacts mapping: adv_name -> public_key.
+        try:
+            name_to_pub = self._get_contacts_name_to_pubkey_map()
+            mapped = name_to_pub.get(name)
+            if mapped:
+                print(f"[DEBUG] Found node ID '{mapped}' for name '{name}' via JSON contacts")
+                return mapped
+        except Exception as e:
+            print(f"[DEBUG] Error checking JSON contacts mapping: {e}")
         
         print(f"[DEBUG] _get_node_id_from_name: Looking up node ID for name '{name}'")
         
