@@ -469,6 +469,10 @@ class MeshHandler:
                         timeout=5.0
                     )
                     if result.returncode == 0:
+                        # Check for error events
+                        output = (result.stdout or "") + (result.stderr or "")
+                        if "EventType.ERROR" in output or "command_error" in output:
+                            continue
                         if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
                             print(f"  ✓ Applied preset using '{preset_name}' command")
                             preset_success = True
@@ -495,6 +499,9 @@ class MeshHandler:
                         pass
             
             # If preset didn't work or didn't apply correctly, try individual settings
+            # Track if we're getting error_code 6 (command not supported)
+            commands_not_supported = False
+            
             for param_name, value_options, param_desc in settings_to_apply:
                 success = False
                 last_error = None
@@ -527,10 +534,27 @@ class MeshHandler:
                             stdout_text = result.stdout.strip() if result.stdout else ""
                             stderr_text = result.stderr.strip() if result.stderr else ""
                             
+                            # Check for error events in output (meshcli may output error events)
+                            # Error format: "Error : Event(type=<EventType.ERROR: 'command_error'>, payload={'error_code': 6}, ...)"
+                            if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                                # Extract error code if present
+                                error_match = re.search(r"error_code['\"]?\s*:\s*(\d+)", stdout_text + stderr_text)
+                                if error_match:
+                                    error_code = error_match.group(1)
+                                    last_error = f"Command rejected by radio (error_code: {error_code})"
+                                    # If error_code 6, commands are not supported
+                                    if error_code == "6":
+                                        commands_not_supported = True
+                                else:
+                                    last_error = "Command rejected by radio (error event)"
+                                last_cmd_name = cmd_name
+                                last_value_used = f"{param_value} {value_unit}".strip()
+                                continue
+                            
                             # Check if command succeeded
                             if result.returncode == 0:
                                 # Check for error messages in stderr
-                                if result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower()):
+                                if result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower() or "command_error" in result.stderr.lower()):
                                     last_error = result.stderr.strip()
                                     last_cmd_name = cmd_name
                                     last_value_used = f"{param_value} {value_unit}".strip()
@@ -538,7 +562,7 @@ class MeshHandler:
                                 
                                 # Check if stdout indicates success or failure
                                 # Some CLIs return success but indicate the command wasn't recognized
-                                if stdout_text and ("unknown" in stdout_text.lower() or "invalid" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                                if stdout_text and ("unknown" in stdout_text.lower() or "invalid" in stdout_text.lower() or "not found" in stdout_text.lower() or "command_error" in stdout_text.lower()):
                                     last_error = stdout_text
                                     last_cmd_name = cmd_name
                                     last_value_used = f"{param_value} {value_unit}".strip()
@@ -589,33 +613,43 @@ class MeshHandler:
                         print(f"    Last attempt: '{last_cmd_name}' with value '{last_value_used}'")
                         print(f"    Error: {last_error}")
             
-            # Try to save/commit configuration (some radios require this)
-            # Also try writing config after each setting
-            save_commands = [
-                self._build_meshcli_cmd("save"),
-                self._build_meshcli_cmd("commit"),
-                self._build_meshcli_cmd("write"),
-                self._build_meshcli_cmd("save-config"),
-                self._build_meshcli_cmd("write-config"),
-            ]
-            
-            for cmd in save_commands:
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=3.0
-                    )
-                    if result.returncode == 0:
-                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
-                            print("  Configuration saved")
-                            break
-                except:
-                    continue
-            
-            # Wait for settings to apply and radio to process changes
-            time.sleep(2.0)  # Increased wait time
+            # If we detected that commands are not supported, skip the rest and show message
+            if commands_not_supported:
+                print()
+                print("  ⚠ Radio firmware does not support runtime parameter changes (error_code: 6)")
+                print("  Skipping remaining configuration attempts.")
+                print("  Please configure radio via MeshCore mobile app or firmware settings.")
+                print()
+                # Still try to verify current settings
+                time.sleep(1.0)
+            else:
+                # Try to save/commit configuration (some radios require this)
+                # Also try writing config after each setting
+                save_commands = [
+                    self._build_meshcli_cmd("save"),
+                    self._build_meshcli_cmd("commit"),
+                    self._build_meshcli_cmd("write"),
+                    self._build_meshcli_cmd("save-config"),
+                    self._build_meshcli_cmd("write-config"),
+                ]
+                
+                for cmd in save_commands:
+                    try:
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=3.0
+                        )
+                        if result.returncode == 0:
+                            if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                                print("  Configuration saved")
+                                break
+                    except:
+                        continue
+                
+                # Wait for settings to apply and radio to process changes
+                time.sleep(2.0)  # Increased wait time
             
             # Verify settings were actually applied by reading config back
             print("Verifying radio configuration...")
@@ -674,15 +708,22 @@ class MeshHandler:
                         for issue in issues:
                             print(f"    ⚠ {issue}")
                         print("  Radio may not be discoverable by other nodes on different frequencies.")
-                        print("  NOTE: Radio settings may need to be configured manually via meshcli or firmware.")
-                        print("  The 'set' command may not be supported for radio parameters in this firmware version.")
-                        print("  Try running these commands manually to check if they work:")
-                        port_str = f"-s {self.serial_port}" if self.serial_port else ""
-                        print(f"    meshcli {port_str} help")
-                        print(f"    meshcli {port_str} set radio_freq {freq_mhz}")
-                        print(f"    meshcli {port_str} set radio_bw {bw_khz}")
-                        print(f"    meshcli {port_str} set radio_sf {preset['spreading_factor']}")
-                        print("  Or configure via the MeshCore mobile app.")
+                        print()
+                        print("  ⚠ WARNING: Radio parameter configuration via CLI is not supported by this firmware.")
+                        print("  The 'set' command is being rejected by the radio (error_code: 6).")
+                        print()
+                        print("  SOLUTION: Configure the radio using one of these methods:")
+                        print("  1. Use the MeshCore mobile app to set radio parameters")
+                        print("  2. Flash firmware compiled with USA/Canada preset settings")
+                        print("  3. Check meshcore-cli documentation for alternative configuration methods")
+                        print()
+                        print("  Current radio settings:")
+                        print(f"    Frequency: {config.get('radio_freq', 'unknown')} MHz")
+                        print(f"    Bandwidth: {config.get('radio_bw', 'unknown')} kHz")
+                        print(f"    Spreading Factor: {config.get('radio_sf', 'unknown')}")
+                        print()
+                        print("  MeshAgotchi will continue to run, but may not be discoverable by")
+                        print("  other nodes if they are using different radio settings.")
                         return len(verified) >= 3  # At least 3 settings correct
                     
                     print("  All settings verified successfully!")
