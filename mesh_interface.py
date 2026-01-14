@@ -37,7 +37,7 @@ class MeshHandler:
         Args:
             min_send_interval: Minimum seconds between sends (default: 2.0)
             max_message_length: Maximum message length in bytes (default: 200)
-            serial_port: Serial port path (e.g., "/dev/ttyUSB0"). If None, meshcli will auto-detect.
+            serial_port: Serial port path (e.g., "/dev/ttyUSB0"). If None, will auto-detect /dev/ttyUSB0.
         """
         self.message_queue = Queue()
         self.last_send_time = None
@@ -45,7 +45,28 @@ class MeshHandler:
         self.max_message_length = max_message_length
         self.radio_version = None
         self.radio_info = None
+        
+        # Auto-detect serial port if not specified
+        if serial_port is None:
+            import os
+            # Check environment variable first
+            serial_port = os.environ.get("MESHCLI_SERIAL_PORT")
+            
+            # If still None, try to auto-detect /dev/ttyUSB0
+            if serial_port is None:
+                import os.path
+                if os.path.exists("/dev/ttyUSB0"):
+                    serial_port = "/dev/ttyUSB0"
+                    print(f"[DEBUG] Auto-detected serial port: {serial_port}")
+                elif os.path.exists("/dev/ttyACM0"):
+                    serial_port = "/dev/ttyACM0"
+                    print(f"[DEBUG] Auto-detected serial port: {serial_port}")
+        
         self.serial_port = serial_port  # e.g., "/dev/ttyUSB0" or None if auto-detected
+        if self.serial_port:
+            print(f"[DEBUG] Using serial port: {self.serial_port}")
+        else:
+            print("[DEBUG] Warning: No serial port specified, meshcli may default to BLE")
         self.friends = set()  # Track discovered nodes as friends
     
     def _build_meshcli_cmd(self, *args, json_output: bool = False) -> list:
