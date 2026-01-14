@@ -100,11 +100,16 @@ class MeshAgotchiDaemon:
                     
                     # Send response
                     if response:
-                        print(f"[DEBUG] Sending response to {sender_node_id}...")
-                        self.mesh_handler.send(sender_node_id, response)
-                        print(f"[{datetime.now()}] *** RESPONSE SENT ***")
-                        print(f"  To: {sender_node_id}")
-                        print(f"  Response: {response[:100]}...")
+                        # IMPORTANT: Destination MUST be the hex node id.
+                        # If we couldn't resolve the sender into a node id, we cannot reply.
+                        if sender_node_id is None:
+                            print("[DEBUG] Cannot send response: sender node id is unknown (None).")
+                        else:
+                            print(f"[DEBUG] Sending response to {sender_node_id}...")
+                            self.mesh_handler.send(sender_node_id, response)
+                            print(f"[{datetime.now()}] *** RESPONSE SENT ***")
+                            print(f"  To: {sender_node_id}")
+                            print(f"  Response: {response[:100]}...")
                     else:
                         print(f"[DEBUG] No response to send (response was empty)")
                 
