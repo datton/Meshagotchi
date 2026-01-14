@@ -150,15 +150,21 @@ class MeshHandler:
                             node_id = parts[0].strip()
                             # Remove hop indicator if present: "name(hop)" -> "name"
                             node_id = re.sub(r'\([^)]+\)', '', node_id).strip()
+                            # Strip any remaining whitespace
+                            node_id = node_id.strip()
                             message = parts[1].strip()
-                        print(f"[DEBUG] Parsed split format: node_id={node_id}, message={message}")
+                        print(f"[DEBUG] Parsed split format: node_id='{node_id}', message='{message}'")
                 
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id and message:
+                    # Strip whitespace from node_id
+                    node_id = node_id.strip()
                     if node_id not in self.friends:
-                        print(f"[DEBUG] Adding new friend: {node_id}")
+                        print(f"[DEBUG] Adding new friend: '{node_id}'")
                         self.friends.add(node_id)
-                    print(f"[MESSAGE RECEIVED] From: {node_id}, Message: {message}")
+                        # Try to add as contact in MeshCore
+                        self._ensure_contact(node_id)
+                    print(f"[MESSAGE RECEIVED] From: '{node_id}', Message: '{message}'")
                     return (node_id, message)
                 else:
                     print(f"[DEBUG] Could not parse message from output: {output}")
@@ -216,7 +222,14 @@ class MeshHandler:
         # Send next message from queue
         try:
             node_id, message = self.message_queue.get_nowait()
-            print(f"[DEBUG] Processing queue: sending to {node_id}, message: {message[:100]}...")
+            # Strip any whitespace from node_id
+            node_id = node_id.strip()
+            print(f"[DEBUG] Processing queue: sending to '{node_id}', message: {message[:100]}...")
+            
+            # Ensure the contact is added before sending
+            if node_id not in self.friends:
+                print(f"[DEBUG] Node '{node_id}' not in friends list, adding as contact...")
+                self._ensure_contact(node_id)
             
             # Send via MeshCore CLI using msg command
             # Format: msg <name> <message>
@@ -240,12 +253,38 @@ class MeshHandler:
                 print(f"[DEBUG] msg stderr: {stderr_text}")
             
             if result.returncode == 0:
-                self.last_send_time = now
-                print(f"[MESSAGE SENT] To: {node_id}, Message: {message[:100]}...")
+                # Check if stdout indicates failure (like "Unknown destination")
+                if "unknown" in stdout_text.lower() or "not found" in stdout_text.lower():
+                    print(f"[ERROR] Destination '{node_id}' not recognized by meshcli")
+                    print(f"[DEBUG] Attempting to add contact and retry...")
+                    # Try to add contact and retry
+                    if self._ensure_contact(node_id):
+                        # Retry sending
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=5.0
+                        )
+                        stdout_text = result.stdout.strip() if result.stdout else ""
+                        stderr_text = result.stderr.strip() if result.stderr else ""
+                        print(f"[DEBUG] Retry msg exit code: {result.returncode}")
+                        if stdout_text:
+                            print(f"[DEBUG] Retry msg stdout: {stdout_text}")
+                        if stderr_text:
+                            print(f"[DEBUG] Retry msg stderr: {stderr_text}")
+                
+                if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                    self.last_send_time = now
+                    print(f"[MESSAGE SENT] To: '{node_id}', Message: {message[:100]}...")
+                else:
+                    print(f"[ERROR] Failed to send message to '{node_id}': {stdout_text or stderr_text}")
+                    # Put message back in queue to retry
+                    self.message_queue.put((node_id, message))
             else:
                 # Failed to send - put back in queue?
                 # For now, just log error
-                print(f"[ERROR] Failed to send message to {node_id}: {stderr_text}")
+                print(f"[ERROR] Failed to send message to '{node_id}': {stderr_text}")
                 # Put message back in queue to retry
                 self.message_queue.put((node_id, message))
                 
@@ -1200,6 +1239,53 @@ class MeshHandler:
             print(f"Error flooding Advert: {e}")
             print("  Continuing anyway - device may still be discoverable")
     
+    def _ensure_contact(self, node_id: str) -> bool:
+        """
+        Ensure a node is added as a contact so we can send messages to it.
+        
+        Args:
+            node_id: Node ID or name to add as contact
+            
+        Returns:
+            True if contact was added or already exists, False otherwise
+        """
+        node_id = node_id.strip()
+        if not node_id:
+            return False
+        
+        try:
+            # Try to add contact using various commands
+            add_commands = [
+                self._build_meshcli_cmd("add", node_id),
+                self._build_meshcli_cmd("contact", "add", node_id),
+                self._build_meshcli_cmd("friend", "add", node_id),
+            ]
+            
+            for cmd in add_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    if result.returncode == 0:
+                        if node_id not in self.friends:
+                            self.friends.add(node_id)
+                        print(f"[DEBUG] Contact '{node_id}' added successfully")
+                        return True
+                except:
+                    continue
+            
+            # If add commands don't work, just track locally
+            if node_id not in self.friends:
+                self.friends.add(node_id)
+            return True
+            
+        except Exception as e:
+            print(f"[DEBUG] Error ensuring contact '{node_id}': {e}")
+            return False
+    
     def add_friend(self, node_id: str) -> bool:
         """
         Track a node locally. MeshCore auto-adds contacts when adverts are received,
@@ -1211,6 +1297,7 @@ class MeshHandler:
         Returns:
             True (always succeeds for local tracking)
         """
+        node_id = node_id.strip()
         # Skip if already tracked
         if node_id in self.friends:
             return True
