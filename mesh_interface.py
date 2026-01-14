@@ -1352,7 +1352,8 @@ class MeshHandler:
     
     def _get_node_id_from_name(self, name: str) -> Optional[str]:
         """
-        Try to get the actual node ID from a name by checking the contacts list.
+        Try to get the actual node ID from a name.
+        First checks database, then queries meshcli contacts list if not found.
         
         Args:
             name: Node name to look up
@@ -1367,6 +1368,17 @@ class MeshHandler:
         
         print(f"[DEBUG] _get_node_id_from_name: Looking up node ID for name '{name}'")
         
+        # First, try to get from database
+        try:
+            import database
+            node_id = database.get_node_id_by_name(name)
+            if node_id:
+                print(f"[DEBUG] Found node ID '{node_id}' for name '{name}' in database")
+                return node_id
+        except Exception as e:
+            print(f"[DEBUG] Error checking database: {e}")
+        
+        # If not in database, query meshcli contacts list
         try:
             # Get contacts list
             result = subprocess.run(
@@ -1419,6 +1431,13 @@ class MeshHandler:
                                 if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
                                     node_id = node_id_candidate
                                     print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}'")
+                                    # Store in database for future lookups
+                                    try:
+                                        import database
+                                        database.store_contact(name_stripped, node_id)
+                                        print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id}' in database")
+                                    except Exception as e:
+                                        print(f"[DEBUG] Error storing contact in database: {e}")
                                     return node_id
                                 else:
                                     print(f"[DEBUG] Candidate '{node_id_candidate}' doesn't match hex pattern")
@@ -1430,6 +1449,13 @@ class MeshHandler:
                         if node_id_match:
                             node_id = node_id_match.group(1)
                             print(f"[DEBUG] ✓ Found node ID '{node_id}' using fallback regex")
+                            # Store in database for future lookups
+                            try:
+                                import database
+                                database.store_contact(name_stripped, node_id)
+                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id}' in database")
+                            except Exception as e:
+                                print(f"[DEBUG] Error storing contact in database: {e}")
                             return node_id
                         
                         print(f"[DEBUG] ✗✗✗ WARNING: Could not extract node ID from line: {line}")
@@ -1557,6 +1583,7 @@ class MeshHandler:
             
             # Also sync with MeshCore's contact list
             # This ensures we're tracking nodes that MeshCore already knows about
+            # This is the PRIMARY source for name -> node_id mappings
             try:
                 result = subprocess.run(
                     self._build_meshcli_cmd("contacts"),
@@ -1567,19 +1594,33 @@ class MeshHandler:
                 
                 if result.returncode == 0 and result.stdout.strip():
                     output = result.stdout.strip()
-                    # Parse contact list - format varies
-                    # Extract contact names/IDs
-                    contact_names = re.findall(r'\b[A-Za-z0-9_]+', output)
-                    contact_ids = re.findall(r'![\da-fA-F]+', output)
+                    lines = output.split('\n')
                     
-                    all_contacts = set(contact_names + contact_ids)
-                    
-                    # Track all contacts locally
-                    self._silent_friend_add = True
-                    for contact in all_contacts:
-                        if contact and contact not in self.friends:
-                            self.add_friend(contact)
-                    self._silent_friend_add = False
+                    for line in lines:
+                        line = line.strip()
+                        if not line or line.startswith('>') or 'contacts in device' in line.lower():
+                            continue
+                        
+                        # Parse: "name <spaces> type <spaces> node_id <spaces> hop_count"
+                        # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
+                        parts = [p.strip() for p in line.split() if p.strip()]
+                        
+                        if len(parts) >= 3:
+                            # parts[0] = name, parts[1] = type, parts[2] = node_id
+                            name = parts[0]
+                            node_id_candidate = parts[2] if len(parts) > 2 else None
+                            
+                            # Check if node_id_candidate looks like a node ID
+                            if node_id_candidate and re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
+                                try:
+                                    import database
+                                    database.store_contact(name, node_id_candidate)
+                                    print(f"[DEBUG] Stored contact: '{name}' -> '{node_id_candidate}'")
+                                    # Also add to friends set (use node ID, not name)
+                                    if node_id_candidate not in self.friends:
+                                        self.friends.add(node_id_candidate)
+                                except Exception as e:
+                                    print(f"[DEBUG] Error storing contact: {e}")
                     
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass

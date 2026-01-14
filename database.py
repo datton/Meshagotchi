@@ -58,6 +58,16 @@ def init_database():
         )
     """)
     
+    # Contacts table - maps client names to node IDs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            name TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -262,6 +272,76 @@ def mark_pet_dead(pet_id: int, reason: str):
     
     conn.commit()
     conn.close()
+
+
+def store_contact(name: str, node_id: str):
+    """
+    Store or update a contact mapping (name -> node_id).
+    
+    Args:
+        name: Client name (e.g., "Mattd-t1000-002")
+        node_id: Node ID (e.g., "0b2c2328618f")
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    name = name.strip()
+    node_id = node_id.strip()
+    
+    if not name or not node_id:
+        conn.close()
+        return
+    
+    now = datetime.datetime.now().isoformat()
+    cursor.execute("""
+        INSERT OR REPLACE INTO contacts (name, node_id, last_seen, updated_at)
+        VALUES (?, ?, ?, ?)
+    """, (name, node_id, now, now))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_node_id_by_name(name: str) -> Optional[str]:
+    """
+    Get node ID for a given client name.
+    
+    Args:
+        name: Client name (e.g., "Mattd-t1000-002")
+        
+    Returns:
+        Node ID if found, None otherwise
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    name = name.strip()
+    cursor.execute("SELECT node_id FROM contacts WHERE name = ?", (name,))
+    row = cursor.fetchone()
+    
+    conn.close()
+    
+    if row:
+        return row['node_id']
+    return None
+
+
+def get_all_contacts() -> List[Dict[str, Any]]:
+    """
+    Get all contacts.
+    
+    Returns:
+        List of contact dictionaries with name and node_id
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT name, node_id, last_seen FROM contacts ORDER BY name")
+    rows = cursor.fetchall()
+    
+    conn.close()
+    
+    return [dict(row) for row in rows]
 
 
 if __name__ == "__main__":
