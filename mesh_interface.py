@@ -360,34 +360,46 @@ class MeshHandler:
             Link info string (JSON or text) or None if failed
         """
         try:
-            # Try with JSON output first for easier parsing
-            result = subprocess.run(
-                self._build_meshcli_cmd("infos", json_output=True),
-                capture_output=True,
-                text=True,
-                timeout=3.0
-            )
-            
-            if result.returncode == 0 and result.stdout.strip():
-                output = result.stdout.strip()
-                return output
-            
-            # Fallback to non-JSON output
+            # Try without JSON first (faster, more reliable)
             result = subprocess.run(
                 self._build_meshcli_cmd("infos"),
                 capture_output=True,
                 text=True,
-                timeout=3.0
+                timeout=5.0  # Increased timeout
             )
             
             if result.returncode == 0 and result.stdout.strip():
                 output = result.stdout.strip()
                 return output
             
+            # Fallback to JSON output if non-JSON didn't work
+            try:
+                result = subprocess.run(
+                    self._build_meshcli_cmd("infos", json_output=True),
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0  # Increased timeout
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    output = result.stdout.strip()
+                    return output
+            except subprocess.TimeoutExpired:
+                # JSON output timed out, that's okay - we'll use non-JSON
+                pass
+            except Exception:
+                # JSON output failed, that's okay - we'll use non-JSON
+                pass
+            
             return None
             
+        except subprocess.TimeoutExpired:
+            # Timeout is okay, just return None
+            return None
         except Exception as e:
-            print(f"Error getting radio link info: {e}")
+            # Only print error if it's not a timeout (timeouts are expected sometimes)
+            if "timeout" not in str(e).lower():
+                print(f"Error getting radio link info: {e}")
             return None
     
     def configure_usa_canada_preset(self) -> bool:
