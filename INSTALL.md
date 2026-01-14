@@ -157,7 +157,7 @@ cd ~
 
 # Clone MeshAgotchi repository
 git clone https://github.com/datton/Meshagotchi.git
-cd Meshogotchi
+cd Meshagotchi
 ```
 
 ### Verify Python Version
@@ -190,7 +190,7 @@ python3 genetics.py
 python3 database.py
 
 # Verify all modules import correctly
-python3 -c "import genetics; import database; import mesh_interface; import game_engine; import main; print('All imports successful!')"
+python3 -c "import genetics; import database; import mesh_interface; import game_engine; import main; print('All imports successful')"
 ```
 
 ## Step 5: Configure MeshCore CLI
@@ -227,8 +227,8 @@ meshcli -s /dev/ttyUSB0 <command>
 # Example: Get version
 meshcli -s /dev/ttyUSB0 -v
 
-# Example: Get status/info
-meshcli -s /dev/ttyUSB0 status
+# Example: Get info (if available)
+meshcli -s /dev/ttyUSB0 info
 ```
 
 **Note**: You may need to specify the serial port (`-s /dev/ttyUSB0`) for all meshcli commands, or meshcli may remember it after first use. Check meshcli documentation for details.

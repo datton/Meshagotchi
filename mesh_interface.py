@@ -263,6 +263,37 @@ class MeshHandler:
                 print(f"  Spreading Factor: {self.USA_CANADA_PRESET['spreading_factor']}")
                 print(f"  Coding Rate: {self.USA_CANADA_PRESET['coding_rate']}")
                 print(f"  Power: {self.USA_CANADA_PRESET['power']} dBm")
+                
+                # Step 4: Set radio name to Meshagotchi
+                if self.set_radio_name("Meshagotchi"):
+                    print("Radio name set to: Meshagotchi")
+                else:
+                    print("Warning: Could not set radio name")
+                
+                # Step 5: Print node card and infos
+                print("\n" + "="*60)
+                print("NODE CARD:")
+                print("="*60)
+                node_card = self.get_node_card()
+                if node_card:
+                    print(node_card)
+                else:
+                    print("Could not retrieve node card")
+                
+                print("\n" + "="*60)
+                print("NODE INFOS:")
+                print("="*60)
+                node_infos = self.get_node_infos()
+                if node_infos:
+                    print(node_infos)
+                else:
+                    print("Could not retrieve node infos")
+                print("="*60 + "\n")
+                
+                # Step 6: Flood Advert to announce availability
+                print("Sending Advert broadcasts to announce availability...")
+                self.flood_advert()
+                
                 return True
             else:
                 print("Error: Failed to configure radio preset")
@@ -285,7 +316,6 @@ class MeshHandler:
             commands = [
                 self._build_meshcli_cmd("-v"),
                 self._build_meshcli_cmd("info"),
-                self._build_meshcli_cmd("status"),
             ]
             
             for cmd in commands:
@@ -506,6 +536,225 @@ class MeshHandler:
         except Exception as e:
             print(f"Error configuring radio preset: {e}")
             return False
+    
+    def set_radio_name(self, name: str) -> bool:
+        """
+        Set the radio node name.
+        
+        Args:
+            name: Name to set (e.g., "Meshagotchi")
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Try various MeshCore CLI commands to set name
+            # Common patterns: set-name, name, setname, node-name
+            name_commands = [
+                self._build_meshcli_cmd("set-name", name),
+                self._build_meshcli_cmd("name", name),
+                self._build_meshcli_cmd("setname", name),
+                self._build_meshcli_cmd("node-name", name),
+                self._build_meshcli_cmd("set", "name", name),
+            ]
+            
+            for cmd in name_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    
+                    if result.returncode == 0:
+                        # Allow time for name to be set
+                        time.sleep(0.2)
+                        return True
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            # If none of the commands worked, try alternative approach
+            # Some systems might require a different format
+            alt_commands = [
+                self._build_meshcli_cmd("config", "name", name),
+                self._build_meshcli_cmd("set-config", "name", name),
+            ]
+            
+            for cmd in alt_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    if result.returncode == 0:
+                        time.sleep(0.2)
+                        return True
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            print(f"Error setting radio name: {e}")
+            return False
+    
+    def get_node_card(self) -> Optional[str]:
+        """
+        Get the node card information (node details/identity).
+        
+        Returns:
+            Node card string or None if failed
+        """
+        try:
+            # Try various MeshCore CLI commands to get node card
+            commands = [
+                self._build_meshcli_cmd("card"),
+                self._build_meshcli_cmd("node-card"),
+                self._build_meshcli_cmd("info", "card"),
+                self._build_meshcli_cmd("show", "card"),
+                self._build_meshcli_cmd("get", "card"),
+            ]
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        return result.stdout.strip()
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error getting node card: {e}")
+            return None
+    
+    def get_node_infos(self) -> Optional[str]:
+        """
+        Get node infos (detailed node information).
+        
+        Returns:
+            Node infos string or None if failed
+        """
+        try:
+            # Try various MeshCore CLI commands to get infos
+            commands = [
+                self._build_meshcli_cmd("infos"),
+                self._build_meshcli_cmd("info"),
+                self._build_meshcli_cmd("node-info"),
+                self._build_meshcli_cmd("node-infos"),
+                self._build_meshcli_cmd("show", "info"),
+                self._build_meshcli_cmd("get", "info"),
+            ]
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        return result.stdout.strip()
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error getting node infos: {e}")
+            return None
+    
+    def flood_advert(self, count: int = 5, delay: float = 0.5):
+        """
+        Flood Advert messages to announce node availability.
+        Sends multiple broadcast messages so other nodes can discover this device.
+        
+        Args:
+            count: Number of Advert messages to send (default: 5)
+            delay: Delay between messages in seconds (default: 0.5)
+        """
+        try:
+            # Try various broadcast/advert commands
+            # Common patterns: broadcast, advert, or send to broadcast address
+            advert_commands = [
+                self._build_meshcli_cmd("advert"),
+                self._build_meshcli_cmd("broadcast", "Advert"),
+                self._build_meshcli_cmd("send", "!ffffffff", "Advert"),  # Broadcast address
+                self._build_meshcli_cmd("send", "!FFFFFFFF", "Advert"),  # Alternative broadcast
+            ]
+            
+            # Try to find a working command first
+            working_cmd = None
+            for cmd in advert_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    if result.returncode == 0:
+                        working_cmd = cmd
+                        break
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            if working_cmd:
+                # Flood the advert messages
+                for i in range(count):
+                    try:
+                        result = subprocess.run(
+                            working_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=3.0
+                        )
+                        if result.returncode == 0:
+                            print(f"  Advert {i+1}/{count} sent")
+                        else:
+                            print(f"  Warning: Advert {i+1}/{count} failed: {result.stderr.strip()}")
+                    except Exception as e:
+                        print(f"  Warning: Advert {i+1}/{count} error: {e}")
+                    
+                    # Delay between messages (except for the last one)
+                    if i < count - 1:
+                        time.sleep(delay)
+                
+                print(f"Advert flood complete ({count} messages)")
+            else:
+                # Fallback: Try using direct send method with broadcast address
+                print("  Trying alternative Advert method...")
+                for i in range(count):
+                    try:
+                        # Use the send method with broadcast address
+                        result = subprocess.run(
+                            self._build_meshcli_cmd("send", "!ffffffff", "Advert"),
+                            capture_output=True,
+                            text=True,
+                            timeout=3.0
+                        )
+                        if result.returncode == 0:
+                            print(f"  Advert {i+1}/{count} sent (broadcast)")
+                        time.sleep(delay)
+                    except Exception as e:
+                        print(f"  Warning: Could not send Advert {i+1}/{count}: {e}")
+                        break
+                
+        except Exception as e:
+            print(f"Error flooding Advert: {e}")
+            print("  Continuing anyway - device may still be discoverable")
 
 
 if __name__ == "__main__":
