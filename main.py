@@ -24,6 +24,8 @@ class MeshAgotchiDaemon:
         self.game_engine = None
         self.last_notification_check = None
         self.notification_interval = 300  # 5 minutes in seconds
+        self.last_advert_flood = None
+        self.advert_flood_interval = 4 * 3600  # 4 hours in seconds (flood adverts 6 times per day)
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -67,6 +69,9 @@ class MeshAgotchiDaemon:
         # Initialize notification check time
         self.last_notification_check = datetime.now()
         
+        # Initialize advert flood time (start immediately)
+        self.last_advert_flood = datetime.now()
+        
         print("MeshAgotchi daemon ready!")
         print("Listening for messages via MeshCore CLI...")
         print("Press Ctrl+C to stop.\n")
@@ -96,8 +101,28 @@ class MeshAgotchiDaemon:
                 # Process pending messages in queue
                 self.mesh_handler.process_pending_messages()
                 
-                # Check for periodic notifications
+                # Periodically discover and add new nodes as friends
+                # This ensures the node can receive messages from anyone
+                if not hasattr(self, 'last_discovery_check'):
+                    self.last_discovery_check = datetime.now()
+                
+                discovery_interval = 60  # Check every 60 seconds
+                time_since_discovery = (datetime.now() - self.last_discovery_check).total_seconds()
+                if time_since_discovery >= discovery_interval:
+                    self.mesh_handler.discover_and_add_nodes()
+                    self.last_discovery_check = datetime.now()
+                
+                # Periodically flood zero-hop adverts throughout the day
+                # This keeps the node discoverable to others
                 now = datetime.now()
+                time_since_advert = (now - self.last_advert_flood).total_seconds()
+                if time_since_advert >= self.advert_flood_interval:
+                    print(f"\n[{now}] Flooding zero-hop adverts to maintain discoverability...")
+                    self.mesh_handler.flood_advert(count=5, delay=0.5, zero_hop=True)
+                    self.last_advert_flood = now
+                    print(f"Advert flood complete. Next flood in {self.advert_flood_interval / 3600:.1f} hours.\n")
+                
+                # Check for periodic notifications
                 time_since_check = (now - self.last_notification_check).total_seconds()
                 
                 if time_since_check >= self.notification_interval:

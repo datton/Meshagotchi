@@ -46,6 +46,7 @@ class MeshHandler:
         self.radio_version = None
         self.radio_info = None
         self.serial_port = serial_port  # e.g., "/dev/ttyUSB0" or None if auto-detected
+        self.friends = set()  # Track discovered nodes as friends
     
     def _build_meshcli_cmd(self, *args) -> list:
         """
@@ -91,6 +92,9 @@ class MeshHandler:
                 # JSON: {"from": "!a1b2c3", "message": "hello"}
                 # Plain: "!a1b2c3: hello"
                 
+                node_id = None
+                message = None
+                
                 # Try to parse as JSON-like
                 if output.startswith("{") and "from" in output.lower():
                     # Extract node_id and message from JSON-like format
@@ -101,7 +105,6 @@ class MeshHandler:
                     if node_match and msg_match:
                         node_id = node_match.group(1)
                         message = msg_match.group(1)
-                        return (node_id, message)
                 else:
                     # Try plain text format: "!nodeid: message"
                     if ":" in output:
@@ -109,7 +112,11 @@ class MeshHandler:
                         if len(parts) == 2:
                             node_id = parts[0].strip()
                             message = parts[1].strip()
-                            return (node_id, message)
+                
+                # Auto-add sender as friend if we got a valid node_id
+                if node_id:
+                    self.add_friend(node_id)
+                    return (node_id, message)
             
             return None
             
@@ -676,24 +683,36 @@ class MeshHandler:
             print(f"Error getting node infos: {e}")
             return None
     
-    def flood_advert(self, count: int = 5, delay: float = 0.5):
+    def flood_advert(self, count: int = 5, delay: float = 0.5, zero_hop: bool = True):
         """
-        Flood Advert messages to announce node availability.
+        Flood Advert messages to announce node availability with zero hop.
         Sends multiple broadcast messages so other nodes can discover this device.
         
         Args:
             count: Number of Advert messages to send (default: 5)
             delay: Delay between messages in seconds (default: 0.5)
+            zero_hop: If True, advertise with zero hop for direct discoverability (default: True)
         """
         try:
-            # Try various broadcast/advert commands
+            # Try various broadcast/advert commands with zero hop
             # Common patterns: broadcast, advert, or send to broadcast address
-            advert_commands = [
-                self._build_meshcli_cmd("advert"),
-                self._build_meshcli_cmd("broadcast", "Advert"),
-                self._build_meshcli_cmd("send", "!ffffffff", "Advert"),  # Broadcast address
-                self._build_meshcli_cmd("send", "!FFFFFFFF", "Advert"),  # Alternative broadcast
-            ]
+            # Zero hop means direct discovery without routing
+            if zero_hop:
+                advert_commands = [
+                    self._build_meshcli_cmd("advert", "0"),  # Zero hop
+                    self._build_meshcli_cmd("advert", "--hop", "0"),
+                    self._build_meshcli_cmd("advert", "-h", "0"),
+                    self._build_meshcli_cmd("broadcast", "Advert", "0"),
+                    self._build_meshcli_cmd("send", "!ffffffff", "Advert", "0"),  # Broadcast with zero hop
+                    self._build_meshcli_cmd("advert"),  # Fallback without hop parameter
+                ]
+            else:
+                advert_commands = [
+                    self._build_meshcli_cmd("advert"),
+                    self._build_meshcli_cmd("broadcast", "Advert"),
+                    self._build_meshcli_cmd("send", "!ffffffff", "Advert"),  # Broadcast address
+                    self._build_meshcli_cmd("send", "!FFFFFFFF", "Advert"),  # Alternative broadcast
+                ]
             
             # Try to find a working command first
             working_cmd = None
@@ -755,6 +774,138 @@ class MeshHandler:
         except Exception as e:
             print(f"Error flooding Advert: {e}")
             print("  Continuing anyway - device may still be discoverable")
+    
+    def add_friend(self, node_id: str) -> bool:
+        """
+        Add a node to the friends list so it can message this node.
+        Auto-called when receiving messages from new nodes.
+        
+        Args:
+            node_id: Node ID to add as friend (e.g., "!a1b2c3")
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Skip if already a friend
+        if node_id in self.friends:
+            return True
+        
+        try:
+            # Try various MeshCore CLI commands to add friend
+            friend_commands = [
+                self._build_meshcli_cmd("add-friend", node_id),
+                self._build_meshcli_cmd("friend", "add", node_id),
+                self._build_meshcli_cmd("friend-add", node_id),
+                self._build_meshcli_cmd("addfriend", node_id),
+                self._build_meshcli_cmd("friend", node_id),
+            ]
+            
+            for cmd in friend_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    
+                    if result.returncode == 0:
+                        self.friends.add(node_id)
+                        # Only print if not in silent mode (for discovery)
+                        if not hasattr(self, '_silent_friend_add') or not self._silent_friend_add:
+                            print(f"  Added {node_id} as friend")
+                        return True
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            # If explicit friend commands don't work, just track it locally
+            # Some mesh networks auto-add on first message
+            self.friends.add(node_id)
+            # Only print if not in silent mode
+            if not hasattr(self, '_silent_friend_add') or not self._silent_friend_add:
+                print(f"  Tracking {node_id} as friend (auto-added)")
+            return True
+            
+        except Exception as e:
+            print(f"Error adding friend {node_id}: {e}")
+            # Still add to local tracking even if command fails
+            self.friends.add(node_id)
+            return False
+    
+    def get_friends_list(self) -> list:
+        """
+        Get list of current friends.
+        
+        Returns:
+            List of node IDs that are friends
+        """
+        return list(self.friends)
+    
+    def discover_and_add_nodes(self):
+        """
+        Periodically discover new nodes and add them as friends.
+        This helps ensure the node can receive messages from anyone.
+        Auto-adds ALL discovered nodes as friends.
+        """
+        try:
+            # Try to get list of discovered nodes
+            # Common commands: list-nodes, nodes, scan, discover
+            discover_commands = [
+                self._build_meshcli_cmd("list-nodes"),
+                self._build_meshcli_cmd("nodes"),
+                self._build_meshcli_cmd("scan"),
+                self._build_meshcli_cmd("discover"),
+                self._build_meshcli_cmd("list"),
+            ]
+            
+            nodes_found = 0
+            nodes_added = 0
+            
+            for cmd in discover_commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        # Parse output to extract node IDs
+                        output = result.stdout.strip()
+                        # Try to find node IDs (typically start with !)
+                        # Also try other formats like hex without ! prefix
+                        node_ids = re.findall(r'![\da-fA-F]+', output)
+                        # Also look for hex patterns that might be node IDs
+                        hex_patterns = re.findall(r'\b[0-9a-fA-F]{8}\b', output)
+                        
+                        # Combine all found node IDs
+                        all_node_ids = set(node_ids)
+                        for hex_id in hex_patterns:
+                            # Convert to node ID format if it looks like one
+                            all_node_ids.add(f"!{hex_id}")
+                        
+                        nodes_found = len(all_node_ids)
+                        
+                        # Auto-add ALL discovered nodes as friends
+                        # Use silent mode to avoid spam during discovery
+                        self._silent_friend_add = True
+                        for node_id in all_node_ids:
+                            if node_id not in self.friends:
+                                if self.add_friend(node_id):
+                                    nodes_added += 1
+                        self._silent_friend_add = False
+                        
+                        if nodes_found > 0:
+                            if nodes_added > 0:
+                                print(f"  Discovered {nodes_found} nodes, added {nodes_added} new friends")
+                            break
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+                    
+        except Exception as e:
+            # Silently fail - discovery is optional
+            pass
 
 
 if __name__ == "__main__":
