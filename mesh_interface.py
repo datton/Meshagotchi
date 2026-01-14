@@ -193,12 +193,14 @@ class MeshHandler:
             node_id: Target Node ID (e.g., "!a1b2c3")
             text: Message text to send
         """
-        print(f"[DEBUG] send() called: node_id={node_id}, text length={len(text)}")
+        # Strip whitespace from node_id immediately
+        node_id = node_id.strip()
+        print(f"[DEBUG] send() called: node_id='{node_id}', text length={len(text)}")
         # Sanitize message
         sanitized = self._sanitize_message(text)
         print(f"[DEBUG] Sanitized message: {sanitized[:100]}...")
         
-        # Add to queue
+        # Add to queue (with cleaned node_id)
         self.message_queue.put((node_id, sanitized))
         print(f"[DEBUG] Message queued. Queue size: {self.message_queue.qsize()}")
         
@@ -252,12 +254,33 @@ class MeshHandler:
             if stderr_text:
                 print(f"[DEBUG] msg stderr: {stderr_text}")
             
-            if result.returncode == 0:
-                # Check if stdout indicates failure (like "Unknown destination")
-                if "unknown" in stdout_text.lower() or "not found" in stdout_text.lower():
-                    print(f"[ERROR] Destination '{node_id}' not recognized by meshcli")
-                    print(f"[DEBUG] Attempting to add contact and retry...")
+            # Check if stdout indicates failure (like "Unknown destination")
+            if result.returncode == 0 and ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                print(f"[ERROR] Destination '{node_id}' not recognized by meshcli")
+                print(f"[DEBUG] Attempting to get node ID from contacts list...")
+                
+                # Try to get the actual node ID from the contacts list
+                node_id_actual = self._get_node_id_from_name(node_id)
+                if node_id_actual and node_id_actual != node_id:
+                    print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', retrying...")
+                    # Retry with the actual node ID
+                    cmd = self._build_meshcli_cmd("msg", node_id_actual, message)
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    print(f"[DEBUG] Retry with node ID - exit code: {result.returncode}")
+                    if stdout_text:
+                        print(f"[DEBUG] Retry msg stdout: {stdout_text}")
+                    if stderr_text:
+                        print(f"[DEBUG] Retry msg stderr: {stderr_text}")
+                else:
                     # Try to add contact and retry
+                    print(f"[DEBUG] Attempting to add contact and retry...")
                     if self._ensure_contact(node_id):
                         # Retry sending
                         result = subprocess.run(
@@ -273,18 +296,12 @@ class MeshHandler:
                             print(f"[DEBUG] Retry msg stdout: {stdout_text}")
                         if stderr_text:
                             print(f"[DEBUG] Retry msg stderr: {stderr_text}")
-                
-                if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
-                    self.last_send_time = now
-                    print(f"[MESSAGE SENT] To: '{node_id}', Message: {message[:100]}...")
-                else:
-                    print(f"[ERROR] Failed to send message to '{node_id}': {stdout_text or stderr_text}")
-                    # Put message back in queue to retry
-                    self.message_queue.put((node_id, message))
+            
+            if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                self.last_send_time = now
+                print(f"[MESSAGE SENT] To: '{node_id}', Message: {message[:100]}...")
             else:
-                # Failed to send - put back in queue?
-                # For now, just log error
-                print(f"[ERROR] Failed to send message to '{node_id}': {stderr_text}")
+                print(f"[ERROR] Failed to send message to '{node_id}': {stdout_text or stderr_text}")
                 # Put message back in queue to retry
                 self.message_queue.put((node_id, message))
                 
@@ -1263,18 +1280,23 @@ class MeshHandler:
             
             for cmd in add_commands:
                 try:
+                    print(f"[DEBUG] Trying to add contact with: {' '.join(cmd)}")
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
                         text=True,
                         timeout=3.0
                     )
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    print(f"[DEBUG] Add contact exit code: {result.returncode}, stdout: {stdout_text}, stderr: {stderr_text}")
                     if result.returncode == 0:
                         if node_id not in self.friends:
                             self.friends.add(node_id)
                         print(f"[DEBUG] Contact '{node_id}' added successfully")
                         return True
-                except:
+                except Exception as e:
+                    print(f"[DEBUG] Exception adding contact: {e}")
                     continue
             
             # If add commands don't work, just track locally
@@ -1285,6 +1307,67 @@ class MeshHandler:
         except Exception as e:
             print(f"[DEBUG] Error ensuring contact '{node_id}': {e}")
             return False
+    
+    def _get_node_id_from_name(self, name: str) -> Optional[str]:
+        """
+        Try to get the actual node ID from a name by checking the contacts list.
+        
+        Args:
+            name: Node name to look up
+            
+        Returns:
+            Node ID if found, None otherwise
+        """
+        name = name.strip()
+        if not name:
+            return None
+        
+        try:
+            # Get contacts list
+            result = subprocess.run(
+                self._build_meshcli_cmd("contacts"),
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                output = result.stdout.strip()
+                print(f"[DEBUG] Contacts list: {output[:200]}...")
+                
+                # Try to find the name in the contacts list
+                # Format varies - could be JSON, text, or structured
+                # Look for the name and extract associated node ID
+                lines = output.split('\n')
+                for line in lines:
+                    if name in line:
+                        # Try to extract node ID (usually starts with ! or is a hex string)
+                        node_id_match = re.search(r'(![a-fA-F0-9]+|[a-fA-F0-9]{8,})', line)
+                        if node_id_match:
+                            node_id = node_id_match.group(1)
+                            print(f"[DEBUG] Found node ID '{node_id}' for name '{name}'")
+                            return node_id
+                
+                # If not found, try parsing as JSON
+                try:
+                    import json
+                    contacts = json.loads(output)
+                    if isinstance(contacts, list):
+                        for contact in contacts:
+                            if isinstance(contact, dict):
+                                contact_name = contact.get('name', '')
+                                contact_id = contact.get('id', '') or contact.get('node_id', '')
+                                if contact_name == name and contact_id:
+                                    print(f"[DEBUG] Found node ID '{contact_id}' for name '{name}' in JSON")
+                                    return contact_id
+                except:
+                    pass
+            
+            return None
+            
+        except Exception as e:
+            print(f"[DEBUG] Error getting node ID from name: {e}")
+            return None
     
     def add_friend(self, node_id: str) -> bool:
         """
