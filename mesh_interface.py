@@ -42,20 +42,34 @@ def _normalize_contact_name(value: str) -> str:
     The `recv` output can include invisible format chars (Unicode category Cf) that are
     NOT whitespace and therefore survive naive `.strip()`, causing lookups like:
       'Mattd-t1000-002<ZWSP>' != 'Mattd-t1000-002'
+    
+    CRITICAL: This function MUST preserve the actual name and only remove invisible/format characters.
+    It should NOT remove visible characters that are part of the name.
     """
+    if not value:
+        return ""
+    
+    # First normalize whitespace (this handles NBSP and other whitespace issues)
     text = _normalize_meshcli_text(value)
     if not text:
         return ""
 
-    # Remove all control/format characters (Cc/Cf) defensively.
+    # Remove all control/format characters (Cc/Cf) defensively - these are invisible
+    # but preserve all visible characters including alphanumeric, underscore, dot, dash
     text = "".join(
         ch for ch in text
         if unicodedata.category(ch) not in ("Cc", "Cf")
     )
 
     # Keep only characters we expect in mesh names (alnum + _ . -).
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "", text)
-    return text
+    # This removes any remaining special characters but preserves the core name
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "", text)
+    
+    # Debug: log if normalization changed the value significantly
+    if value != normalized and len(value) != len(normalized):
+        print(f"[DEBUG] Name normalization: '{value}' -> '{normalized}' (length {len(value)} -> {len(normalized)})")
+    
+    return normalized
 
 
 class MeshHandler:
@@ -285,39 +299,53 @@ class MeshHandler:
                 
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id and message:
-                    # Strip whitespace from node_id (this is the name from the message)
+                    # CRITICAL: The node_id extracted from the message is the ADVERT NAME, not the hex node ID
+                    # We MUST look up the hex node ID immediately - NEVER use the advert name as a node ID
+                    # Strip whitespace and normalize the name from the message
                     name_from_message = _normalize_contact_name(node_id)
+                    print(f"[DEBUG] Extracted name from message: '{name_from_message}' (original: '{node_id}')")
                     
-                    # ALWAYS get the actual node ID from contacts list
+                    # ALWAYS get the actual hex node ID from contacts list
                     # NEVER use the name for sending - it will always fail
-                    node_id_actual = self._get_node_id_from_name(name_from_message)
+                    # Try JSON contacts mapping first (fastest)
+                    node_id_actual = None
+                    try:
+                        name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=False)
+                        node_id_actual = name_to_pub.get(name_from_message)
+                        if node_id_actual:
+                            print(f"[DEBUG] Found hex node ID '{node_id_actual}' for name '{name_from_message}' via JSON contacts")
+                    except Exception as e:
+                        print(f"[DEBUG] Error checking JSON contacts: {e}")
+                    
+                    # If JSON lookup failed, try the full lookup method
+                    if not node_id_actual:
+                        node_id_actual = self._get_node_id_from_name(name_from_message)
+                    
+                    # If still not found, try direct extraction from contacts list
+                    if not node_id_actual:
+                        print(f"[DEBUG] Standard lookup failed, trying direct contacts list extraction...")
+                        node_id_actual = self._extract_node_id_from_contacts_list(name_from_message)
+                    
                     if node_id_actual:
-                        print(f"[DEBUG] Mapped name '{name_from_message}' to node ID '{node_id_actual}'")
-                        # Store node ID in friends (use node ID, not name)
-                        if node_id_actual not in self.friends:
-                            self.friends.add(node_id_actual)
-                        print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (node ID: '{node_id_actual}'), Message: '{message}'")
-                        # ALWAYS return the node ID, never the name
-                        return (node_id_actual, message)
-                    else:
-                        # CRITICAL: If we can't find node ID, we MUST query contacts list directly
-                        # Do NOT return the name - it will fail
-                        print(f"[DEBUG] ERROR: Could not find node ID for name '{name_from_message}'")
-                        print(f"[DEBUG] Querying contacts list directly to find node ID...")
-                        # Query contacts list and parse it to find the node ID
-                        node_id_from_contacts = self._extract_node_id_from_contacts_list(name_from_message)
-                        if node_id_from_contacts:
-                            print(f"[DEBUG] Found node ID '{node_id_from_contacts}' from contacts list")
-                            if node_id_from_contacts not in self.friends:
-                                self.friends.add(node_id_from_contacts)
-                            print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (node ID: '{node_id_from_contacts}'), Message: '{message}'")
-                            return (node_id_from_contacts, message)
+                        # Verify it's actually a hex node ID (not a name)
+                        if not re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_actual):
+                            print(f"[DEBUG] ERROR: Lookup returned non-hex value '{node_id_actual}' - treating as invalid")
+                            node_id_actual = None
                         else:
-                            print(f"[DEBUG] CRITICAL ERROR: Cannot find node ID for '{name_from_message}' - message cannot be replied to")
-                            # Still return something so the message is processed, but log the error
-                            print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (NO NODE ID FOUND), Message: '{message}'")
-                            # Return None for node_id to indicate we can't reply
-                            return (None, message)
+                            print(f"[DEBUG] Successfully mapped name '{name_from_message}' to hex node ID '{node_id_actual}'")
+                            # Store node ID in friends (use hex node ID, not name)
+                            if node_id_actual not in self.friends:
+                                self.friends.add(node_id_actual)
+                            print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (hex node ID: '{node_id_actual}'), Message: '{message}'")
+                            # ALWAYS return the hex node ID, never the name
+                            return (node_id_actual, message)
+                    
+                    # If we still can't find the hex node ID, we cannot reply
+                    print(f"[DEBUG] CRITICAL ERROR: Cannot find hex node ID for name '{name_from_message}' - message cannot be replied to")
+                    print(f"[DEBUG] Available contacts: {list(self._get_contacts_name_to_pubkey_map().keys()) if self._get_contacts_name_to_pubkey_map() else 'none'}")
+                    print(f"[MESSAGE RECEIVED] From: '{name_from_message}' (NO HEX NODE ID FOUND), Message: '{message}'")
+                    # Return None for node_id to indicate we can't reply
+                    return (None, message)
                 else:
                     print(f"[DEBUG] Could not parse message from output: {output}")
             
@@ -349,26 +377,45 @@ class MeshHandler:
         node_id = node_id.strip()
         print(f"[DEBUG] send() called: node_id='{node_id}', text length={len(text)}")
         
-        # ALWAYS use node ID for sending, not the name
-        # If node_id looks like a name (not a hex string), look up the node ID
-        # Node IDs are typically hex strings (8+ chars) or start with !
+        # CRITICAL: ALWAYS use hex node ID for sending, NEVER use the advert name
+        # If node_id looks like a name (not a hex string), look up the hex node ID
+        # Node IDs are hex strings (8+ chars), optionally prefixed with !
         if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
-            print(f"[DEBUG] '{node_id}' looks like a name, looking up node ID from contacts...")
+            print(f"[DEBUG] '{node_id}' looks like a name (not hex), looking up hex node ID from contacts...")
             node_id_actual = self._get_node_id_from_name(node_id)
             if node_id_actual:
-                print(f"[DEBUG] Using node ID '{node_id_actual}' instead of name '{node_id}'")
-                node_id = node_id_actual
-            else:
+                # Verify it's actually a hex node ID
+                if re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_actual):
+                    print(f"[DEBUG] Using hex node ID '{node_id_actual}' instead of name '{node_id}'")
+                    node_id = node_id_actual
+                else:
+                    print(f"[DEBUG] ERROR: Lookup returned non-hex value '{node_id_actual}' - trying direct extraction...")
+                    node_id_actual = None
+            
+            if not node_id_actual:
                 # Try direct extraction from contacts list
                 print(f"[DEBUG] Trying direct extraction from contacts list...")
                 node_id_actual = self._extract_node_id_from_contacts_list(node_id)
                 if node_id_actual:
-                    print(f"[DEBUG] Found node ID '{node_id_actual}' from contacts list")
-                    node_id = node_id_actual
-                else:
-                    print(f"[DEBUG] CRITICAL ERROR: Could not find node ID for '{node_id}' - CANNOT SEND")
-                    print(f"[DEBUG] DO NOT SEND - name '{node_id}' will not work as destination")
-                    return  # Don't queue the message if we can't find node ID
+                    # Verify it's actually a hex node ID
+                    if re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_actual):
+                        print(f"[DEBUG] Found hex node ID '{node_id_actual}' from contacts list")
+                        node_id = node_id_actual
+                    else:
+                        print(f"[DEBUG] ERROR: Direct extraction returned non-hex value '{node_id_actual}'")
+                        node_id_actual = None
+            
+            if not node_id_actual:
+                print(f"[DEBUG] CRITICAL ERROR: Could not find hex node ID for '{node_id}' - CANNOT SEND")
+                print(f"[DEBUG] DO NOT SEND - name '{node_id}' will not work as destination")
+                print(f"[DEBUG] Available contacts: {list(self._get_contacts_name_to_pubkey_map().keys()) if self._get_contacts_name_to_pubkey_map() else 'none'}")
+                return  # Don't queue the message if we can't find hex node ID
+        
+        # Final verification: ensure node_id is a valid hex string (remove ! prefix if present)
+        node_id_clean = node_id.lstrip("!")
+        if not re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_clean):
+            print(f"[DEBUG] CRITICAL ERROR: Final node_id '{node_id}' is not a valid hex node ID - CANNOT SEND")
+            return
         
         # Sanitize message
         sanitized = self._sanitize_message(text)
@@ -402,22 +449,39 @@ class MeshHandler:
             node_id = node_id.strip()
             print(f"[DEBUG] Processing queue: sending to '{node_id}', message: {message[:100]}...")
             
-            # ALWAYS use node ID, not name - look it up if needed
-            # If node_id looks like a name (not a hex string), look up the node ID
+            # CRITICAL: ALWAYS use hex node ID, not name - look it up if needed
+            # If node_id looks like a name (not a hex string), look up the hex node ID
             if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
-                print(f"[DEBUG] '{node_id}' in queue looks like a name, looking up node ID...")
+                print(f"[DEBUG] '{node_id}' in queue looks like a name (not hex), looking up hex node ID...")
                 node_id_actual = self._get_node_id_from_name(node_id)
+                if node_id_actual:
+                    # Verify it's actually a hex node ID
+                    if not re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_actual):
+                        print(f"[DEBUG] ERROR: Lookup returned non-hex value '{node_id_actual}' - trying direct extraction...")
+                        node_id_actual = None
+                
                 if not node_id_actual:
                     # Try direct extraction from contacts list
                     node_id_actual = self._extract_node_id_from_contacts_list(node_id)
+                    if node_id_actual:
+                        # Verify it's actually a hex node ID
+                        if not re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_actual):
+                            print(f"[DEBUG] ERROR: Direct extraction returned non-hex value '{node_id_actual}'")
+                            node_id_actual = None
                 
                 if node_id_actual:
-                    print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', using node ID")
+                    print(f"[DEBUG] Found hex node ID '{node_id_actual}' for name '{node_id}', using hex node ID")
                     node_id = node_id_actual
                 else:
-                    print(f"[DEBUG] CRITICAL ERROR: Could not find node ID for '{node_id}' - CANNOT SEND")
+                    print(f"[DEBUG] CRITICAL ERROR: Could not find hex node ID for '{node_id}' - CANNOT SEND")
                     print(f"[DEBUG] Skipping message - name '{node_id}' will not work as destination")
                     return  # Skip this message - don't try to send with a name
+            
+            # Final verification: ensure node_id is a valid hex string (remove ! prefix if present)
+            node_id_clean = node_id.lstrip("!")
+            if not re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_clean):
+                print(f"[DEBUG] CRITICAL ERROR: node_id '{node_id}' is not a valid hex node ID - CANNOT SEND")
+                return
             
             # Ensure the contact is added before sending
             if node_id not in self.friends:
@@ -426,13 +490,9 @@ class MeshHandler:
             
             # Send via MeshCore CLI using msg command
             # Format: msg <node_id> <message>
-            # CRITICAL: MUST use node ID (hex string), NEVER use name
-            # Verify node_id is actually a node ID (hex string), not a name
-            if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
-                print(f"[DEBUG] CRITICAL ERROR: node_id '{node_id}' is not a valid node ID - CANNOT SEND")
-                return
-            
-            print(f"[DEBUG] Sending to node ID: '{node_id}' (verified as hex string)")
+            # CRITICAL: MUST use hex node ID, NEVER use name
+            # node_id has already been verified as a valid hex string above
+            print(f"[DEBUG] Sending to hex node ID: '{node_id}' (verified as hex string)")
             cmd = self._build_meshcli_cmd("msg", node_id, message)
             print(f"[DEBUG] Sending command: {' '.join(cmd)}")
             result = subprocess.run(
