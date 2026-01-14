@@ -89,29 +89,62 @@ cd ~
 git clone https://github.com/meshcore-dev/meshcore-cli.git
 cd meshcore-cli
 
-# Follow MeshCore CLI installation instructions
-# This typically involves:
-# 1. Installing dependencies
-# 2. Building/installing the CLI tool
+# Create a virtual environment (required for modern Raspberry Pi OS)
+python3 -m venv venv
 
-# Check if meshcore command is available
-which meshcore
-meshcore --version
+# Activate the virtual environment
+source venv/bin/activate
+
+# Install dependencies and meshcore-cli
+pip install meshcore
+pip install .
+
+# Verify installation
+which meshcli
+meshcli -v
 ```
 
-**Note**: If MeshCore CLI installation instructions differ, follow the official documentation at https://github.com/meshcore-dev/meshcore-cli
+### Make meshcli Available System-Wide
+
+To make the `meshcli` command available without activating the virtual environment:
+
+```bash
+# Create ~/.local/bin directory if it doesn't exist
+mkdir -p ~/.local/bin
+
+# Add ~/.local/bin to PATH (if not already there)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Create symlink from venv to ~/.local/bin
+ln -s ~/meshcore-cli/venv/bin/meshcli ~/.local/bin/meshcli
+
+# Verify it works
+which meshcli
+meshcli -v
+```
+
+**Note**: The MeshCore CLI command is `meshcli` (not `meshcore`). If installation instructions differ, follow the official documentation at https://github.com/meshcore-dev/meshcore-cli
 
 ### Verify USB Serial Access
 
 ```bash
 # Check if Heltec V3 is connected
-ls -l /dev/ttyUSB* /dev/ttyACM*
+# Note: It may appear as /dev/ttyUSB0 or /dev/ttyACM0 depending on device
+ls -l /dev/ttyUSB* 2>/dev/null || echo "No ttyUSB devices found"
+ls -l /dev/ttyACM* 2>/dev/null || echo "No ttyACM devices found"
+
+# You should see something like:
+# crw-rw---- 1 root dialout 188, 0 Jan 13 18:22 /dev/ttyUSB0
 
 # Add your user to dialout group (for USB serial access)
 sudo usermod -a -G dialout $USER
 
 # Log out and log back in for group change to take effect
 # Or run: newgrp dialout
+
+# Verify you're in the dialout group
+groups | grep dialout
 ```
 
 ## Step 4: Install MeshAgotchi
@@ -168,25 +201,37 @@ python3 -c "import genetics; import database; import mesh_interface; import game
 # Check USB device
 lsusb | grep -i heltec
 
-# Check serial port
+# Check serial port (should show /dev/ttyUSB0 or /dev/ttyACM0)
 dmesg | tail -20 | grep -i tty
 
-# Test MeshCore CLI can see the device
-meshcore list-devices
-# or
-meshcore status
+# Find your device path
+ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+
+# Test MeshCore CLI with serial port
+# Replace /dev/ttyUSB0 with your actual device path
+meshcli -s /dev/ttyUSB0 -h
+# or try listing devices
+meshcli -l
 ```
 
-**Note**: Exact MeshCore CLI commands may vary. Refer to MeshCore CLI documentation for your specific firmware version.
+**Note**: The `-s` flag specifies the serial port. If your device is at `/dev/ttyUSB0`, use `meshcli -s /dev/ttyUSB0` for all commands.
 
-### Configure MeshCore CLI (if needed)
+### Configure MeshCore CLI Serial Port
 
-Some MeshCore CLI installations require configuration:
-- Device path (e.g., `/dev/ttyUSB0` or `/dev/ttyACM0`)
-- Baud rate settings
-- Node ID configuration
+MeshCore CLI needs to know which serial port to use. Based on the help output, use the `-s` flag:
 
-Follow MeshCore CLI documentation for your specific setup.
+```bash
+# Connect to device at /dev/ttyUSB0
+meshcli -s /dev/ttyUSB0 <command>
+
+# Example: Get version
+meshcli -s /dev/ttyUSB0 -v
+
+# Example: Get status/info
+meshcli -s /dev/ttyUSB0 status
+```
+
+**Note**: You may need to specify the serial port (`-s /dev/ttyUSB0`) for all meshcli commands, or meshcli may remember it after first use. Check meshcli documentation for details.
 
 ## Step 6: Run MeshAgotchi
 
@@ -194,8 +239,15 @@ Follow MeshCore CLI documentation for your specific setup.
 
 ```bash
 cd ~/Meshagotchi
+
+# If your device is at /dev/ttyUSB0, set environment variable:
+export MESHCLI_SERIAL_PORT=/dev/ttyUSB0
+
+# Or run without (meshcli may auto-detect):
 python3 main.py
 ```
+
+**Note**: If meshcli requires the serial port to be specified, set `MESHCLI_SERIAL_PORT` environment variable to your device path (e.g., `/dev/ttyUSB0`).
 
 You should see:
 ```
@@ -309,12 +361,19 @@ sudo journalctl -u meshagotchi.service -f
 ### MeshCore CLI Not Found
 
 ```bash
-# Check if meshcore is in PATH
-which meshcore
+# Check if meshcli is in PATH
+which meshcli
 
 # If not found, check installation
 cd ~/meshcore-cli
-# Re-run installation steps
+source venv/bin/activate
+which meshcli
+
+# If found in venv but not in PATH, create symlink:
+mkdir -p ~/.local/bin
+ln -s ~/meshcore-cli/venv/bin/meshcli ~/.local/bin/meshcli
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
 ### Permission Denied on USB Serial
@@ -355,9 +414,9 @@ sudo cat /etc/systemd/system/meshagotchi.service
 
 1. Verify MeshCore CLI is working:
    ```bash
-   meshcore receive
+   meshcli receive
    # or
-   meshcore listen
+   meshcli listen
    ```
 
 2. Check USB connection:

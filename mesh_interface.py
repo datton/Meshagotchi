@@ -30,13 +30,14 @@ class MeshHandler:
         'power': 22              # 22 dBm
     }
     
-    def __init__(self, min_send_interval: float = 2.0, max_message_length: int = 200):
+    def __init__(self, min_send_interval: float = 2.0, max_message_length: int = 200, serial_port: Optional[str] = None):
         """
         Initialize MeshHandler.
         
         Args:
             min_send_interval: Minimum seconds between sends (default: 2.0)
             max_message_length: Maximum message length in bytes (default: 200)
+            serial_port: Serial port path (e.g., "/dev/ttyUSB0"). If None, meshcli will auto-detect.
         """
         self.message_queue = Queue()
         self.last_send_time = None
@@ -44,6 +45,23 @@ class MeshHandler:
         self.max_message_length = max_message_length
         self.radio_version = None
         self.radio_info = None
+        self.serial_port = serial_port  # e.g., "/dev/ttyUSB0" or None if auto-detected
+    
+    def _build_meshcli_cmd(self, *args) -> list:
+        """
+        Build meshcli command with optional serial port.
+        
+        Args:
+            *args: Command arguments (e.g., "receive", "send", "node_id", "message")
+            
+        Returns:
+            List of command arguments for subprocess.run
+        """
+        cmd = ["meshcli"]
+        if self.serial_port:
+            cmd.extend(["-s", self.serial_port])
+        cmd.extend(args)
+        return cmd
     
     def listen(self) -> Optional[Tuple[str, str]]:
         """
@@ -55,9 +73,9 @@ class MeshHandler:
         try:
             # Try to receive message via MeshCore CLI
             # Note: Exact command syntax to be verified during implementation
-            # Assumed: meshcore receive or meshcore listen
+            # Assumed: meshcli receive or meshcli listen
             result = subprocess.run(
-                ["meshcore", "receive"],
+                self._build_meshcli_cmd("receive"),
                 capture_output=True,
                 text=True,
                 timeout=1.0  # Non-blocking check
@@ -141,9 +159,9 @@ class MeshHandler:
             
             # Send via MeshCore CLI
             # Note: Exact command syntax to be verified
-            # Assumed: meshcore send <node_id> <message>
+            # Assumed: meshcli send <node_id> <message>
             result = subprocess.run(
-                ["meshcore", "send", node_id, message],
+                self._build_meshcli_cmd("send", node_id, message),
                 capture_output=True,
                 text=True,
                 timeout=5.0
@@ -263,12 +281,11 @@ class MeshHandler:
         """
         try:
             # Try various MeshCore CLI commands to get version
-            # Common patterns: meshcore version, meshcore --version, meshcore info
+            # Correct pattern: meshcli -v (prints version)
             commands = [
-                ["meshcore", "version"],
-                ["meshcore", "--version"],
-                ["meshcore", "info"],
-                ["meshcore", "status"],
+                self._build_meshcli_cmd("-v"),
+                self._build_meshcli_cmd("info"),
+                self._build_meshcli_cmd("status"),
             ]
             
             for cmd in commands:
@@ -301,10 +318,10 @@ class MeshHandler:
         try:
             # Try various MeshCore CLI commands to get link info
             commands = [
-                ["meshcore", "link"],
-                ["meshcore", "config"],
-                ["meshcore", "get-config"],
-                ["meshcore", "info"],
+                self._build_meshcli_cmd("link"),
+                self._build_meshcli_cmd("config"),
+                self._build_meshcli_cmd("get-config"),
+                self._build_meshcli_cmd("info"),
             ]
             
             for cmd in commands:
@@ -348,10 +365,10 @@ class MeshHandler:
             # Try to set frequency (may be in Hz or MHz depending on CLI)
             # Try both formats
             freq_commands = [
-                ["meshcore", "set-frequency", str(preset['frequency'])],  # Hz
-                ["meshcore", "set-frequency", str(preset['frequency'] / 1000000)],  # MHz
-                ["meshcore", "frequency", str(preset['frequency'])],
-                ["meshcore", "freq", str(preset['frequency'] / 1000000)],
+                self._build_meshcli_cmd("set-frequency", str(preset['frequency'])),  # Hz
+                self._build_meshcli_cmd("set-frequency", str(preset['frequency'] / 1000000)),  # MHz
+                self._build_meshcli_cmd("frequency", str(preset['frequency'])),
+                self._build_meshcli_cmd("freq", str(preset['frequency'] / 1000000)),
             ]
             
             for cmd in freq_commands:
@@ -370,9 +387,9 @@ class MeshHandler:
             
             # Set bandwidth
             bw_commands = [
-                ["meshcore", "set-bandwidth", str(preset['bandwidth'])],
-                ["meshcore", "bandwidth", str(preset['bandwidth'])],
-                ["meshcore", "bw", str(preset['bandwidth'] / 1000)],  # kHz
+                self._build_meshcli_cmd("set-bandwidth", str(preset['bandwidth'])),
+                self._build_meshcli_cmd("bandwidth", str(preset['bandwidth'])),
+                self._build_meshcli_cmd("bw", str(preset['bandwidth'] / 1000)),  # kHz
             ]
             
             for cmd in bw_commands:
@@ -391,9 +408,9 @@ class MeshHandler:
             
             # Set spreading factor
             sf_commands = [
-                ["meshcore", "set-spreading-factor", str(preset['spreading_factor'])],
-                ["meshcore", "spreading-factor", str(preset['spreading_factor'])],
-                ["meshcore", "sf", str(preset['spreading_factor'])],
+                self._build_meshcli_cmd("set-spreading-factor", str(preset['spreading_factor'])),
+                self._build_meshcli_cmd("spreading-factor", str(preset['spreading_factor'])),
+                self._build_meshcli_cmd("sf", str(preset['spreading_factor'])),
             ]
             
             for cmd in sf_commands:
@@ -412,9 +429,9 @@ class MeshHandler:
             
             # Set coding rate
             cr_commands = [
-                ["meshcore", "set-coding-rate", str(preset['coding_rate'])],
-                ["meshcore", "coding-rate", str(preset['coding_rate'])],
-                ["meshcore", "cr", str(preset['coding_rate'])],
+                self._build_meshcli_cmd("set-coding-rate", str(preset['coding_rate'])),
+                self._build_meshcli_cmd("coding-rate", str(preset['coding_rate'])),
+                self._build_meshcli_cmd("cr", str(preset['coding_rate'])),
             ]
             
             for cmd in cr_commands:
@@ -433,9 +450,9 @@ class MeshHandler:
             
             # Set power
             power_commands = [
-                ["meshcore", "set-power", str(preset['power'])],
-                ["meshcore", "power", str(preset['power'])],
-                ["meshcore", "tx-power", str(preset['power'])],
+                self._build_meshcli_cmd("set-power", str(preset['power'])),
+                self._build_meshcli_cmd("power", str(preset['power'])),
+                self._build_meshcli_cmd("tx-power", str(preset['power'])),
             ]
             
             for cmd in power_commands:
@@ -454,9 +471,9 @@ class MeshHandler:
             
             # Alternative: Try preset command if available
             preset_commands = [
-                ["meshcore", "set-preset", "usa-canada"],
-                ["meshcore", "preset", "usa-canada"],
-                ["meshcore", "set-preset", "USA/Canada"],
+                self._build_meshcli_cmd("set-preset", "usa-canada"),
+                self._build_meshcli_cmd("preset", "usa-canada"),
+                self._build_meshcli_cmd("set-preset", "USA/Canada"),
             ]
             
             for cmd in preset_commands:
@@ -483,7 +500,7 @@ class MeshHandler:
             # If preset command exists but individual commands don't work well,
             # that's okay - the preset should handle it
             print(f"Warning: Only {success_count}/5 parameters confirmed set")
-            print("Radio may use preset defaults. Verify with: meshcore config")
+            print("Radio may use preset defaults. Verify with: meshcli config")
             return True  # Assume success if we tried
             
         except Exception as e:
