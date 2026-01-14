@@ -99,7 +99,7 @@ class MeshHandler:
     def _get_contacts_name_to_pubkey_map(self, force_refresh: bool = False) -> Dict[str, str]:
         """
         Query MeshCore contacts via JSON (`meshcli -j contacts`) and build a mapping:
-        normalized adv_name -> normalized public_key.
+        normalized adv_name -> destination hex id.
 
         We prefer this over parsing the text table because the JSON output is stable and
         includes the true public key (hex destination) directly.
@@ -147,7 +147,12 @@ class MeshHandler:
                 pub_norm = _normalize_meshcli_text(public_key).lstrip("!").lower()
                 if not re.fullmatch(r"[a-f0-9]{8,}", pub_norm):
                     continue
-                mapping[name_norm] = pub_norm
+
+                # MeshCore CLI text table displays a short hex node id (e.g., 0b2c2328618f).
+                # Your radios accept both the short and full public_key, but we prefer the short
+                # to match the device's own displayed destination format.
+                dest = pub_norm[:12] if len(pub_norm) >= 12 else pub_norm
+                mapping[name_norm] = dest
 
             # Cache
             self._contacts_cache_ts = now
@@ -1506,6 +1511,12 @@ class MeshHandler:
             node_id = name_to_pub[name]
             print(f"[DEBUG] Found node ID '{node_id}' for name '{name}' via JSON contacts")
             return node_id
+        else:
+            # Helpful runtime signal: if this prints, JSON contacts is being queried but did not match.
+            # This should be rare once normalization is correct.
+            if name_to_pub:
+                sample = list(name_to_pub.items())[:3]
+                print(f"[DEBUG] JSON contacts lookup miss for '{name}'. Map size={len(name_to_pub)}. Sample={sample}")
         
         try:
             # Query contacts list directly
@@ -1595,6 +1606,8 @@ class MeshHandler:
             if mapped:
                 print(f"[DEBUG] Found node ID '{mapped}' for name '{name}' via JSON contacts")
                 return mapped
+            if name_to_pub:
+                print(f"[DEBUG] JSON contacts mapping present but no match for '{name}' (keys are normalized).")
         except Exception as e:
             print(f"[DEBUG] Error checking JSON contacts mapping: {e}")
         
