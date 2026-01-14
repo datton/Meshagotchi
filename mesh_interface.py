@@ -1410,21 +1410,19 @@ class MeshHandler:
                     line_stripped = line.strip()
                     name_stripped = name.strip()
                     
-                    print(f"[DEBUG] Checking if name '{name_stripped}' is in line: '{line_stripped[:50]}...'")
+                    print(f"[DEBUG] Checking if name '{name_stripped}' (len={len(name_stripped)}) is in line: '{line_stripped[:80]}...'")
                     
-                    # Check if name appears in the line (could be at start or anywhere)
-                    # Also check if the line starts with the name (most common case)
-                    # Use word boundary to ensure we match the full name, not a substring
                     # The line format is: "name <spaces> type <spaces> node_id"
-                    # So we need to check if the line starts with the name followed by whitespace or end
-                    # More robust matching: check if first word of line matches the name
-                    first_word = line_stripped.split()[0] if line_stripped.split() else ""
-                    name_match = (
-                        line_stripped.startswith(name_stripped) or
-                        first_word == name_stripped or
-                        name_stripped in line_stripped or
-                        re.match(r'^' + re.escape(name_stripped) + r'(\s|$)', line_stripped)
-                    )
+                    # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
+                    # Get the first word from the line (the name)
+                    line_parts = line_stripped.split()
+                    first_word = line_parts[0] if line_parts else ""
+                    
+                    print(f"[DEBUG] First word of line: '{first_word}' (len={len(first_word)})")
+                    print(f"[DEBUG] Comparing: '{name_stripped}' == '{first_word}' ? {name_stripped == first_word}")
+                    
+                    # Match if the first word of the line equals the name (after stripping both)
+                    name_match = (first_word == name_stripped)
                     
                     if name_match:
                         print(f"[DEBUG] ✓ Found line with name '{name_stripped}' (first word: '{first_word}'): {line_stripped}")
