@@ -9,6 +9,7 @@ import subprocess
 import time
 import re
 import json
+import unicodedata
 from queue import Queue
 from typing import Optional, Tuple, Dict
 from datetime import datetime, timedelta
@@ -32,6 +33,29 @@ def _normalize_meshcli_text(value: str) -> str:
     # Convert any whitespace to normal spaces so collapse works consistently.
     value = "".join((" " if ch.isspace() else ch) for ch in value)
     return re.sub(r"[ ]+", " ", value).strip()
+
+
+def _normalize_contact_name(value: str) -> str:
+    """
+    Normalize a MeshCore contact name into a stable lookup key.
+
+    The `recv` output can include invisible format chars (Unicode category Cf) that are
+    NOT whitespace and therefore survive naive `.strip()`, causing lookups like:
+      'Mattd-t1000-002<ZWSP>' != 'Mattd-t1000-002'
+    """
+    text = _normalize_meshcli_text(value)
+    if not text:
+        return ""
+
+    # Remove all control/format characters (Cc/Cf) defensively.
+    text = "".join(
+        ch for ch in text
+        if unicodedata.category(ch) not in ("Cc", "Cf")
+    )
+
+    # Keep only characters we expect in mesh names (alnum + _ . -).
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "", text)
+    return text
 
 
 class MeshHandler:
@@ -143,7 +167,7 @@ class MeshHandler:
                 if not isinstance(adv_name, str) or not adv_name.strip():
                     continue
 
-                name_norm = _normalize_meshcli_text(adv_name)
+                name_norm = _normalize_contact_name(adv_name)
                 pub_norm = _normalize_meshcli_text(public_key).lstrip("!").lower()
                 if not re.fullmatch(r"[a-f0-9]{8,}", pub_norm):
                     continue
@@ -262,7 +286,7 @@ class MeshHandler:
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id and message:
                     # Strip whitespace from node_id (this is the name from the message)
-                    name_from_message = _normalize_meshcli_text(node_id)
+                    name_from_message = _normalize_contact_name(node_id)
                     
                     # ALWAYS get the actual node ID from contacts list
                     # NEVER use the name for sending - it will always fail
@@ -1499,7 +1523,7 @@ class MeshHandler:
         Returns:
             Node ID if found, None otherwise
         """
-        name = _normalize_meshcli_text(name)
+        name = _normalize_contact_name(name)
         if not name:
             return None
         
@@ -1532,7 +1556,7 @@ class MeshHandler:
                 lines = output.splitlines()
 
                 # Find the line that starts with the name (normalize both sides).
-                name_key = _normalize_meshcli_text(name)
+                name_key = _normalize_contact_name(name)
                 for raw_line in lines:
                     line = _normalize_meshcli_text(raw_line)
                     if not line or line.startswith(">") or "contacts in device" in line.lower():
@@ -1543,7 +1567,7 @@ class MeshHandler:
                     if not parts:
                         continue
 
-                    first_token = _normalize_meshcli_text(parts[0])
+                    first_token = _normalize_contact_name(parts[0])
                     if first_token != name_key:
                         continue
 
@@ -1590,7 +1614,7 @@ class MeshHandler:
         Returns:
             Node ID if found, None otherwise
         """
-        name = _normalize_meshcli_text(name)
+        name = _normalize_contact_name(name)
         if not name:
             print(f"[DEBUG] _get_node_id_from_name: Empty name provided")
             return None
