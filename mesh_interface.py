@@ -13,6 +13,19 @@ from typing import Optional, Tuple
 from datetime import datetime, timedelta
 
 
+def _normalize_meshcli_text(value: str) -> str:
+    """
+    Normalize MeshCLI output / names for robust matching.
+    MeshCLI output can contain odd spacing (including NBSP), so collapse all
+    whitespace to single spaces and trim.
+    """
+    if value is None:
+        return ""
+    # NBSP is sometimes present in CLI output; normalize it explicitly.
+    value = value.replace("\u00a0", " ")
+    return re.sub(r"\s+", " ", value).strip()
+
+
 class MeshHandler:
     """
     Handles all MeshCore CLI communication with rate limiting.
@@ -158,7 +171,7 @@ class MeshHandler:
                 # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id and message:
                     # Strip whitespace from node_id (this is the name from the message)
-                    name_from_message = node_id.strip()
+                    name_from_message = _normalize_meshcli_text(node_id)
                     
                     # ALWAYS get the actual node ID from contacts list
                     # NEVER use the name for sending - it will always fail
@@ -1395,7 +1408,7 @@ class MeshHandler:
         Returns:
             Node ID if found, None otherwise
         """
-        name = name.strip()
+        name = _normalize_meshcli_text(name)
         if not name:
             return None
         
@@ -1411,49 +1424,50 @@ class MeshHandler:
             )
             
             if result.returncode == 0 and result.stdout:
-                output = result.stdout.strip()
-                lines = output.split('\n')
-                
-                # Find the line that starts with the name
-                name_stripped = name.strip()
-                for line in lines:
-                    line = line.strip()
-                    if not line or line.startswith('>') or 'contacts in device' in line.lower():
+                output = result.stdout
+                lines = output.splitlines()
+
+                # Find the line that starts with the name (normalize both sides).
+                name_key = _normalize_meshcli_text(name)
+                for raw_line in lines:
+                    line = _normalize_meshcli_text(raw_line)
+                    if not line or line.startswith(">") or "contacts in device" in line.lower():
                         continue
-                    
-                    # Get first word (the name)
-                    line_parts = line.split()
-                    if line_parts and line_parts[0] == name_stripped:
-                        # Found matching line, extract node ID
-                        # Format: "name <spaces> type <spaces> node_id <spaces> hop_count"
-                        parts = [p.strip() for p in line.split() if p.strip()]
-                        print(f"[DEBUG] Found matching line, parts: {parts}")
-                        
-                        # Look for type (CLI, REP, etc.) and get node ID after it
-                        for i, part in enumerate(parts):
-                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                node_id_candidate = parts[i + 1].strip()
-                                if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                    print(f"[DEBUG] Extracted node ID: '{node_id_candidate}'")
-                                    # Store in database
-                                    try:
-                                        import database
-                                        database.store_contact(name_stripped, node_id_candidate)
-                                    except Exception as e:
-                                        print(f"[DEBUG] Error storing in database: {e}")
-                                    return node_id_candidate
-                        
-                        # Fallback: find any hex string in the line
-                        node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
-                        if node_id_match:
-                            node_id = node_id_match.group(1)
-                            print(f"[DEBUG] Extracted node ID (fallback): '{node_id}'")
-                            try:
-                                import database
-                                database.store_contact(name_stripped, node_id)
-                            except Exception as e:
-                                print(f"[DEBUG] Error storing in database: {e}")
-                            return node_id
+
+                    # Most MeshCore names do not contain spaces; compare first token.
+                    parts = [p for p in line.split(" ") if p]
+                    if not parts:
+                        continue
+
+                    first_token = _normalize_meshcli_text(parts[0])
+                    if first_token != name_key:
+                        continue
+
+                    print(f"[DEBUG] Found matching line, parts: {parts}")
+
+                    # Prefer the token after the type column (CLI/REP/etc.)
+                    node_id_candidate = None
+                    for i, part in enumerate(parts):
+                        if part.upper() in ["CLI", "REP", "CLIENT", "REPEATER"] and i + 1 < len(parts):
+                            candidate = _normalize_meshcli_text(parts[i + 1])
+                            if re.fullmatch(r"[a-fA-F0-9]{8,}", candidate):
+                                node_id_candidate = candidate.lower()
+                                break
+
+                    # Fallback: first hex token (8+ chars) on the line.
+                    if not node_id_candidate:
+                        m = re.search(r"\b([a-fA-F0-9]{8,})\b", line)
+                        if m:
+                            node_id_candidate = m.group(1).lower()
+
+                    if node_id_candidate:
+                        print(f"[DEBUG] Extracted node ID: '{node_id_candidate}'")
+                        try:
+                            import database
+                            database.store_contact(name_key, node_id_candidate)
+                        except Exception as e:
+                            print(f"[DEBUG] Error storing in database: {e}")
+                        return node_id_candidate
             
             return None
             
@@ -1472,10 +1486,14 @@ class MeshHandler:
         Returns:
             Node ID if found, None otherwise
         """
-        name = name.strip()
+        name = _normalize_meshcli_text(name)
         if not name:
             print(f"[DEBUG] _get_node_id_from_name: Empty name provided")
             return None
+
+        # If it already looks like a node id, just return it.
+        if re.fullmatch(r"!?[a-fA-F0-9]{8,}", name):
+            return name.lstrip("!").lower()
         
         print(f"[DEBUG] _get_node_id_from_name: Looking up node ID for name '{name}'")
         
@@ -1484,8 +1502,9 @@ class MeshHandler:
             import database
             node_id = database.get_node_id_by_name(name)
             if node_id:
-                print(f"[DEBUG] Found node ID '{node_id}' for name '{name}' in database")
-                return node_id
+                node_id_norm = _normalize_meshcli_text(node_id).lstrip("!").lower()
+                print(f"[DEBUG] Found node ID '{node_id_norm}' for name '{name}' in database")
+                return node_id_norm
         except Exception as e:
             print(f"[DEBUG] Error checking database: {e}")
         
@@ -1500,46 +1519,43 @@ class MeshHandler:
             )
             
             if result.returncode == 0 and result.stdout:
-                output = result.stdout.strip()
-                print(f"[DEBUG] Contacts list: {output[:200]}...")
+                output = result.stdout
+                preview = _normalize_meshcli_text(output)[:200]
+                print(f"[DEBUG] Contacts list: {preview}...")
                 
                 # Parse contacts list format:
                 # Format appears to be: "name <spaces> type <spaces> node_id <spaces> hop_count"
                 # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
-                lines = output.split('\n')
+                lines = output.splitlines()
                 print(f"[DEBUG] Parsing {len(lines)} lines from contacts list")
                 
                 # First, try to find the line that contains the name
-                name_stripped = name.strip()
+                name_stripped = _normalize_meshcli_text(name)
                 matching_line = None
                 
                 for line_num, line in enumerate(lines):
                     line_original = line  # Keep original for debugging
-                    line = line.strip()
+                    line = _normalize_meshcli_text(line)
                     print(f"[DEBUG] Line {line_num}: '{line[:80]}...'")
                     if not line or line.startswith('>') or 'contacts in device' in line.lower():
                         print(f"[DEBUG] Skipping line {line_num} (empty, starts with '>', or summary line)")
                         continue
                     
                     # Get the first word from the line (the name)
-                    line_parts = line.split()
+                    line_parts = [p for p in line.split(" ") if p]
                     first_word = line_parts[0] if line_parts else ""
                     
                     print(f"[DEBUG] First word: '{first_word}', Looking for: '{name_stripped}'")
                     
                     # Match if the first word of the line equals the name (after stripping both)
-                    if first_word == name_stripped:
+                    if _normalize_meshcli_text(first_word) == name_stripped:
                         print(f"[DEBUG] ✓✓✓ MATCH FOUND on line {line_num}!")
                         matching_line = line
-                        break
-                    
-                    if name_match:
-                        print(f"[DEBUG] ✓✓✓ MATCH! Found line with name '{name_stripped}' (first word: '{first_word}'): {line_stripped}")
                         # Extract node ID from the line
                         # Pattern: "name <spaces> type <spaces> node_id <spaces> hop_count"
                         # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                         # Split by whitespace - filter out empty strings
-                        parts = [p.strip() for p in line.split() if p.strip()]
+                        parts = [p.strip() for p in line.split(" ") if p.strip()]
                         print(f"[DEBUG] Line parts: {parts}")
                         
                         # Look for the type (CLI, REP, etc.) and get the node ID after it
@@ -1548,11 +1564,11 @@ class MeshHandler:
                             # Node ID is usually after the type (CLI, REP, etc.)
                             # and is a hex string
                             if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                node_id_candidate = parts[i + 1].strip()
+                                node_id_candidate = _normalize_meshcli_text(parts[i + 1].strip())
                                 print(f"[DEBUG] Checking candidate '{node_id_candidate}' after type '{part}'")
                                 # Check if it looks like a node ID (hex string, 8+ chars)
-                                if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                    node_id_found = node_id_candidate
+                                if re.fullmatch(r'[a-fA-F0-9]{8,}', node_id_candidate):
+                                    node_id_found = node_id_candidate.lower()
                                     print(f"[DEBUG] ✓✓✓ Found node ID '{node_id_found}' after type '{part}'")
                                     break
                                 else:
@@ -1573,7 +1589,7 @@ class MeshHandler:
                         print(f"[DEBUG] Trying fallback regex to find hex string...")
                         node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
                         if node_id_match:
-                            node_id_found = node_id_match.group(1)
+                            node_id_found = node_id_match.group(1).lower()
                             print(f"[DEBUG] ✓ Found node ID '{node_id_found}' using fallback regex")
                             # Store in database for future lookups
                             try:
@@ -1586,20 +1602,25 @@ class MeshHandler:
                         
                         print(f"[DEBUG] ✗✗✗ ERROR: Could not extract node ID from line: {line}")
                         print(f"[DEBUG] Parts were: {parts}")
-                    else:
-                        print(f"[DEBUG] Name '{name_stripped}' not found in line (checked: '{line_stripped[:50]}...')")
-                        # Try a more flexible match - check if name starts the line (after stripping)
-                        if line_stripped.startswith(name_stripped):
-                            print(f"[DEBUG] Line starts with name, trying extraction anyway...")
-                            parts = [p.strip() for p in line.split() if p.strip()]
-                            print(f"[DEBUG] Line parts: {parts}")
-                            for i, part in enumerate(parts):
-                                if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                    node_id_candidate = parts[i + 1].strip()
-                                    if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                        node_id = node_id_candidate
-                                        print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}' (flexible match)")
-                                        return node_id
+                        break
+                    
+                    # Try a more flexible match - check if name starts the line (after stripping)
+                    if line.startswith(name_stripped):
+                        print(f"[DEBUG] Line starts with name, trying extraction anyway...")
+                        parts = [p.strip() for p in line.split(" ") if p.strip()]
+                        print(f"[DEBUG] Line parts: {parts}")
+                        for i, part in enumerate(parts):
+                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
+                                node_id_candidate = parts[i + 1].strip()
+                                if re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
+                                    node_id = node_id_candidate.lower()
+                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}' (flexible match)")
+                                    try:
+                                        import database
+                                        database.store_contact(name_stripped, node_id)
+                                    except Exception as e:
+                                        print(f"[DEBUG] Error storing contact in database: {e}")
+                                    return node_id
                 
                 # If not found, try parsing as JSON
                 try:
