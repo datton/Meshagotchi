@@ -66,39 +66,33 @@ class MeshHandler:
     
     def listen(self) -> Optional[Tuple[str, str]]:
         """
-        Polls MeshCore CLI for new messages.
+        Polls MeshCore CLI for new messages using recv command.
+        MeshCore format: name(hop): message
         
         Returns:
             Tuple of (sender_node_id, message_text) or None if no message
         """
         try:
-            # Try to receive message via MeshCore CLI
-            # Note: Exact command syntax to be verified during implementation
-            # Assumed: meshcli receive or meshcli listen
+            # Use recv command to get next message
             result = subprocess.run(
-                self._build_meshcli_cmd("receive"),
+                self._build_meshcli_cmd("recv"),
                 capture_output=True,
                 text=True,
                 timeout=1.0  # Non-blocking check
             )
             
             if result.returncode == 0 and result.stdout.strip():
-                # Parse output - could be JSON or plain text
-                # Try JSON first, fall back to plain text
                 output = result.stdout.strip()
                 
-                # Simple parsing - adjust based on actual CLI output format
-                # Example formats:
-                # JSON: {"from": "!a1b2c3", "message": "hello"}
-                # Plain: "!a1b2c3: hello"
+                # MeshCore CLI format: name(hop): message
+                # Example: "Meshagotchi(0): /help" or "t114_fdl(D): Hello"
+                # Also supports JSON format with -j flag
                 
                 node_id = None
                 message = None
                 
-                # Try to parse as JSON-like
+                # Try JSON format first (if -j was used or output is JSON)
                 if output.startswith("{") and "from" in output.lower():
-                    # Extract node_id and message from JSON-like format
-                    # This is a simplified parser - adjust based on actual format
                     node_match = re.search(r'"from"\s*:\s*"([^"]+)"', output)
                     msg_match = re.search(r'"message"\s*:\s*"([^"]+)"', output)
                     
@@ -106,16 +100,25 @@ class MeshHandler:
                         node_id = node_match.group(1)
                         message = msg_match.group(1)
                 else:
-                    # Try plain text format: "!nodeid: message"
-                    if ":" in output:
+                    # Parse MeshCore format: name(hop): message
+                    # Match pattern like "name(hop): message" or "name: message"
+                    match = re.match(r'^([^(]+)(?:\([^)]+\))?:\s*(.+)$', output)
+                    if match:
+                        node_id = match.group(1).strip()
+                        message = match.group(2).strip()
+                    elif ":" in output:
+                        # Fallback: simple split on colon
                         parts = output.split(":", 1)
                         if len(parts) == 2:
                             node_id = parts[0].strip()
+                            # Remove hop indicator if present: "name(hop)" -> "name"
+                            node_id = re.sub(r'\([^)]+\)', '', node_id).strip()
                             message = parts[1].strip()
                 
-                # Auto-add sender as friend if we got a valid node_id
+                # Track sender locally (MeshCore auto-adds contacts from adverts)
                 if node_id:
-                    self.add_friend(node_id)
+                    if node_id not in self.friends:
+                        self.friends.add(node_id)
                     return (node_id, message)
             
             return None
@@ -164,11 +167,11 @@ class MeshHandler:
         try:
             node_id, message = self.message_queue.get_nowait()
             
-            # Send via MeshCore CLI
-            # Note: Exact command syntax to be verified
-            # Assumed: meshcli send <node_id> <message>
+            # Send via MeshCore CLI using msg command
+            # Format: msg <name> <message>
+            # Note: node_id might be a name or node ID - meshcli handles both
             result = subprocess.run(
-                self._build_meshcli_cmd("send", node_id, message),
+                self._build_meshcli_cmd("msg", node_id, message),
                 capture_output=True,
                 text=True,
                 timeout=5.0
@@ -348,32 +351,26 @@ class MeshHandler:
     def get_radio_link_info(self) -> Optional[str]:
         """
         Get radio link information (frequency, bandwidth, etc.).
+        Uses infos command which returns all node information including radio settings.
         
         Returns:
             Link info string or None if failed
         """
         try:
-            # Try various MeshCore CLI commands to get link info
-            commands = [
-                self._build_meshcli_cmd("link"),
-                self._build_meshcli_cmd("config"),
-                self._build_meshcli_cmd("get-config"),
-                self._build_meshcli_cmd("info"),
-            ]
+            # Use infos command which returns all node information including radio settings
+            # This includes: radio_freq, radio_bw, radio_sf, radio_cr, tx_power, etc.
+            result = subprocess.run(
+                self._build_meshcli_cmd("infos"),
+                capture_output=True,
+                text=True,
+                timeout=3.0
+            )
             
-            for cmd in commands:
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=3.0
-                    )
-                    
-                    if result.returncode == 0 and result.stdout.strip():
-                        return result.stdout.strip()
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
+            if result.returncode == 0 and result.stdout.strip():
+                output = result.stdout.strip()
+                # Extract radio-related info from the output
+                # infos returns JSON or formatted text with radio settings
+                return output
             
             return None
             
@@ -610,36 +607,26 @@ class MeshHandler:
     
     def get_node_card(self) -> Optional[str]:
         """
-        Get the node card information (node details/identity).
+        Get the node card information (node URI/identity).
+        Uses card command which exports the node URI.
         
         Returns:
             Node card string or None if failed
         """
         try:
-            # Try various MeshCore CLI commands to get node card
-            commands = [
+            # Use card command (correct MeshCore CLI command)
+            result = subprocess.run(
                 self._build_meshcli_cmd("card"),
-                self._build_meshcli_cmd("node-card"),
-                self._build_meshcli_cmd("info", "card"),
-                self._build_meshcli_cmd("show", "card"),
-                self._build_meshcli_cmd("get", "card"),
-            ]
+                capture_output=True,
+                text=True,
+                timeout=3.0
+            )
             
-            for cmd in commands:
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=3.0
-                    )
-                    
-                    if result.returncode == 0 and result.stdout.strip():
-                        return result.stdout.strip()
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
             
             return None
+            
             
         except Exception as e:
             print(f"Error getting node card: {e}")
@@ -648,34 +635,22 @@ class MeshHandler:
     def get_node_infos(self) -> Optional[str]:
         """
         Get node infos (detailed node information).
+        Uses infos command which returns all node information.
         
         Returns:
             Node infos string or None if failed
         """
         try:
-            # Try various MeshCore CLI commands to get infos
-            commands = [
+            # Use infos command (correct MeshCore CLI command)
+            result = subprocess.run(
                 self._build_meshcli_cmd("infos"),
-                self._build_meshcli_cmd("info"),
-                self._build_meshcli_cmd("node-info"),
-                self._build_meshcli_cmd("node-infos"),
-                self._build_meshcli_cmd("show", "info"),
-                self._build_meshcli_cmd("get", "info"),
-            ]
+                capture_output=True,
+                text=True,
+                timeout=3.0
+            )
             
-            for cmd in commands:
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=3.0
-                    )
-                    
-                    if result.returncode == 0 and result.stdout.strip():
-                        return result.stdout.strip()
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
             
             return None
             
@@ -685,91 +660,71 @@ class MeshHandler:
     
     def flood_advert(self, count: int = 5, delay: float = 0.5, zero_hop: bool = True):
         """
-        Flood Advert messages to announce node availability with zero hop.
-        Sends multiple broadcast messages so other nodes can discover this device.
+        Flood Advert messages to announce node availability.
+        Uses floodadv command for efficient flooding, or advert for single sends.
         
         Args:
             count: Number of Advert messages to send (default: 5)
-            delay: Delay between messages in seconds (default: 0.5)
-            zero_hop: If True, advertise with zero hop for direct discoverability (default: True)
+            delay: Delay between messages in seconds (default: 0.5) - only used if floodadv not available
+            zero_hop: If True, set scope for zero-hop flooding (default: True)
         """
         try:
-            # Try various broadcast/advert commands with zero hop
-            # Common patterns: broadcast, advert, or send to broadcast address
-            # Zero hop means direct discovery without routing
-            if zero_hop:
-                advert_commands = [
-                    self._build_meshcli_cmd("advert", "0"),  # Zero hop
-                    self._build_meshcli_cmd("advert", "--hop", "0"),
-                    self._build_meshcli_cmd("advert", "-h", "0"),
-                    self._build_meshcli_cmd("broadcast", "Advert", "0"),
-                    self._build_meshcli_cmd("send", "!ffffffff", "Advert", "0"),  # Broadcast with zero hop
-                    self._build_meshcli_cmd("advert"),  # Fallback without hop parameter
-                ]
-            else:
-                advert_commands = [
-                    self._build_meshcli_cmd("advert"),
-                    self._build_meshcli_cmd("broadcast", "Advert"),
-                    self._build_meshcli_cmd("send", "!ffffffff", "Advert"),  # Broadcast address
-                    self._build_meshcli_cmd("send", "!FFFFFFFF", "Advert"),  # Alternative broadcast
-                ]
+            # First try floodadv command (most efficient)
+            try:
+                result = subprocess.run(
+                    self._build_meshcli_cmd("floodadv"),
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
+                if result.returncode == 0:
+                    print(f"  Flood advert sent (using floodadv command)")
+                    return
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
             
-            # Try to find a working command first
-            working_cmd = None
-            for cmd in advert_commands:
+            # If floodadv doesn't work, use advert command in a loop
+            # For zero-hop, we might need to set scope first
+            if zero_hop:
+                # Try to set scope for zero-hop (if supported)
+                # Scope might control flooding behavior
+                try:
+                    subprocess.run(
+                        self._build_meshcli_cmd("scope", ""),  # Empty scope might mean local/zero-hop
+                        capture_output=True,
+                        text=True,
+                        timeout=2.0
+                    )
+                except:
+                    pass  # Scope setting is optional
+            
+            # Send multiple adverts
+            success_count = 0
+            for i in range(count):
                 try:
                     result = subprocess.run(
-                        cmd,
+                        self._build_meshcli_cmd("advert"),
                         capture_output=True,
                         text=True,
                         timeout=3.0
                     )
                     if result.returncode == 0:
-                        working_cmd = cmd
-                        break
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
-            
-            if working_cmd:
-                # Flood the advert messages
-                for i in range(count):
-                    try:
-                        result = subprocess.run(
-                            working_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=3.0
-                        )
-                        if result.returncode == 0:
-                            print(f"  Advert {i+1}/{count} sent")
-                        else:
+                        success_count += 1
+                        print(f"  Advert {i+1}/{count} sent")
+                    else:
+                        if result.stderr:
                             print(f"  Warning: Advert {i+1}/{count} failed: {result.stderr.strip()}")
-                    except Exception as e:
-                        print(f"  Warning: Advert {i+1}/{count} error: {e}")
-                    
-                    # Delay between messages (except for the last one)
-                    if i < count - 1:
-                        time.sleep(delay)
+                except Exception as e:
+                    print(f"  Warning: Advert {i+1}/{count} error: {e}")
                 
-                print(f"Advert flood complete ({count} messages)")
+                # Delay between messages (except for the last one)
+                if i < count - 1:
+                    time.sleep(delay)
+            
+            if success_count > 0:
+                print(f"Advert flood complete ({success_count}/{count} messages sent)")
             else:
-                # Fallback: Try using direct send method with broadcast address
-                print("  Trying alternative Advert method...")
-                for i in range(count):
-                    try:
-                        # Use the send method with broadcast address
-                        result = subprocess.run(
-                            self._build_meshcli_cmd("send", "!ffffffff", "Advert"),
-                            capture_output=True,
-                            text=True,
-                            timeout=3.0
-                        )
-                        if result.returncode == 0:
-                            print(f"  Advert {i+1}/{count} sent (broadcast)")
-                        time.sleep(delay)
-                    except Exception as e:
-                        print(f"  Warning: Could not send Advert {i+1}/{count}: {e}")
-                        break
+                print("  Warning: No adverts were sent successfully")
                 
         except Exception as e:
             print(f"Error flooding Advert: {e}")
@@ -777,60 +732,27 @@ class MeshHandler:
     
     def add_friend(self, node_id: str) -> bool:
         """
-        Add a node to the friends list so it can message this node.
-        Auto-called when receiving messages from new nodes.
+        Track a node locally. MeshCore auto-adds contacts when adverts are received,
+        so we mainly track them locally for reference.
         
         Args:
-            node_id: Node ID to add as friend (e.g., "!a1b2c3")
+            node_id: Node ID or name to track (e.g., "!a1b2c3" or "Meshagotchi")
             
         Returns:
-            True if successful, False otherwise
+            True (always succeeds for local tracking)
         """
-        # Skip if already a friend
+        # Skip if already tracked
         if node_id in self.friends:
             return True
         
-        try:
-            # Try various MeshCore CLI commands to add friend
-            friend_commands = [
-                self._build_meshcli_cmd("add-friend", node_id),
-                self._build_meshcli_cmd("friend", "add", node_id),
-                self._build_meshcli_cmd("friend-add", node_id),
-                self._build_meshcli_cmd("addfriend", node_id),
-                self._build_meshcli_cmd("friend", node_id),
-            ]
-            
-            for cmd in friend_commands:
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=3.0
-                    )
-                    
-                    if result.returncode == 0:
-                        self.friends.add(node_id)
-                        # Only print if not in silent mode (for discovery)
-                        if not hasattr(self, '_silent_friend_add') or not self._silent_friend_add:
-                            print(f"  Added {node_id} as friend")
-                        return True
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
-            
-            # If explicit friend commands don't work, just track it locally
-            # Some mesh networks auto-add on first message
-            self.friends.add(node_id)
-            # Only print if not in silent mode
-            if not hasattr(self, '_silent_friend_add') or not self._silent_friend_add:
-                print(f"  Tracking {node_id} as friend (auto-added)")
-            return True
-            
-        except Exception as e:
-            print(f"Error adding friend {node_id}: {e}")
-            # Still add to local tracking even if command fails
-            self.friends.add(node_id)
-            return False
+        # Just track locally - MeshCore auto-adds contacts from adverts
+        self.friends.add(node_id)
+        
+        # Only print if not in silent mode
+        if not hasattr(self, '_silent_friend_add') or not self._silent_friend_add:
+            print(f"  Tracking {node_id} (MeshCore will auto-add from adverts)")
+        
+        return True
     
     def get_friends_list(self) -> list:
         """
@@ -843,23 +765,20 @@ class MeshHandler:
     
     def discover_and_add_nodes(self):
         """
-        Periodically discover new nodes and add them as friends.
-        This helps ensure the node can receive messages from anyone.
-        Auto-adds ALL discovered nodes as friends.
+        Discover new nodes using node_discover command.
+        MeshCore auto-adds contacts from adverts, so we mainly track them locally.
+        Also use contacts command to sync with MeshCore's contact list.
         """
         try:
-            # Try to get list of discovered nodes
-            # Common commands: list-nodes, nodes, scan, discover
+            # First, use node_discover to discover nodes
+            # Format: node_discover <filter> where filter can be type (1=client, 2=repeater, etc.)
+            # Empty filter discovers all nodes
             discover_commands = [
-                self._build_meshcli_cmd("list-nodes"),
-                self._build_meshcli_cmd("nodes"),
-                self._build_meshcli_cmd("scan"),
-                self._build_meshcli_cmd("discover"),
-                self._build_meshcli_cmd("list"),
+                self._build_meshcli_cmd("node_discover"),  # Discover all nodes
+                self._build_meshcli_cmd("node_discover", "1"),  # Discover clients only
             ]
             
-            nodes_found = 0
-            nodes_added = 0
+            nodes_discovered = 0
             
             for cmd in discover_commands:
                 try:
@@ -867,41 +786,60 @@ class MeshHandler:
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=5.0
+                        timeout=10.0  # Discovery can take time
                     )
                     
                     if result.returncode == 0 and result.stdout.strip():
-                        # Parse output to extract node IDs
                         output = result.stdout.strip()
-                        # Try to find node IDs (typically start with !)
-                        # Also try other formats like hex without ! prefix
+                        # Parse discovered nodes from output
+                        # Format varies - could be names, node IDs, or structured data
+                        # Extract any node identifiers
+                        node_names = re.findall(r'\b[A-Za-z0-9_]+', output)
                         node_ids = re.findall(r'![\da-fA-F]+', output)
-                        # Also look for hex patterns that might be node IDs
-                        hex_patterns = re.findall(r'\b[0-9a-fA-F]{8}\b', output)
                         
-                        # Combine all found node IDs
-                        all_node_ids = set(node_ids)
-                        for hex_id in hex_patterns:
-                            # Convert to node ID format if it looks like one
-                            all_node_ids.add(f"!{hex_id}")
+                        all_nodes = set(node_names + node_ids)
+                        nodes_discovered = len(all_nodes)
                         
-                        nodes_found = len(all_node_ids)
-                        
-                        # Auto-add ALL discovered nodes as friends
-                        # Use silent mode to avoid spam during discovery
+                        # Track discovered nodes locally
                         self._silent_friend_add = True
-                        for node_id in all_node_ids:
-                            if node_id not in self.friends:
-                                if self.add_friend(node_id):
-                                    nodes_added += 1
+                        for node in all_nodes:
+                            if node and node not in self.friends:
+                                self.add_friend(node)
                         self._silent_friend_add = False
                         
-                        if nodes_found > 0:
-                            if nodes_added > 0:
-                                print(f"  Discovered {nodes_found} nodes, added {nodes_added} new friends")
+                        if nodes_discovered > 0:
                             break
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
+            
+            # Also sync with MeshCore's contact list
+            # This ensures we're tracking nodes that MeshCore already knows about
+            try:
+                result = subprocess.run(
+                    self._build_meshcli_cmd("contacts"),
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    output = result.stdout.strip()
+                    # Parse contact list - format varies
+                    # Extract contact names/IDs
+                    contact_names = re.findall(r'\b[A-Za-z0-9_]+', output)
+                    contact_ids = re.findall(r'![\da-fA-F]+', output)
+                    
+                    all_contacts = set(contact_names + contact_ids)
+                    
+                    # Track all contacts locally
+                    self._silent_friend_add = True
+                    for contact in all_contacts:
+                        if contact and contact not in self.friends:
+                            self.add_friend(contact)
+                    self._silent_friend_add = False
+                    
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
                     
         except Exception as e:
             # Silently fail - discovery is optional
