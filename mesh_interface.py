@@ -1396,9 +1396,13 @@ class MeshHandler:
                 # Format appears to be: "name <spaces> type <spaces> node_id <spaces> hop_count"
                 # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                 lines = output.split('\n')
-                for line in lines:
+                print(f"[DEBUG] Parsing {len(lines)} lines from contacts list")
+                for line_num, line in enumerate(lines):
+                    line_original = line  # Keep original for debugging
                     line = line.strip()
+                    print(f"[DEBUG] Line {line_num}: '{line[:80]}...'")
                     if not line or line.startswith('>') or 'contacts in device' in line.lower():
+                        print(f"[DEBUG] Skipping line {line_num} (empty, starts with '>', or summary line)")
                         continue
                     
                     # Check if this line contains the name we're looking for
