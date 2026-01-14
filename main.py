@@ -92,6 +92,12 @@ class MeshAgotchiDaemon:
                     print(f"[{datetime.now()}] *** MESSAGE RECEIVED ***")
                     print(f"  From: {sender_node_id}")
                     print(f"  Command: {command_text}")
+
+                    # If we can't resolve sender to a node id, we cannot safely process commands
+                    # (user/pet identity depends on node_id) and we definitely cannot reply.
+                    if sender_node_id is None:
+                        print("[DEBUG] Skipping command processing: sender node id is unknown (None).")
+                        continue
                     
                     # Process command
                     print(f"[DEBUG] Processing command with game engine...")

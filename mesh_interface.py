@@ -22,9 +22,16 @@ def _normalize_meshcli_text(value: str) -> str:
     """
     if value is None:
         return ""
-    # NBSP is sometimes present in CLI output; normalize it explicitly.
-    value = value.replace("\u00a0", " ")
-    return re.sub(r"\s+", " ", value).strip()
+    # Normalize a wide set of unicode whitespace / zero-width chars that can appear
+    # in meshcli outputs (and that may survive naive .strip()).
+    value = str(value)
+    value = value.replace("\ufeff", "")  # BOM / zero-width no-break space
+    value = value.replace("\u200b", "")  # zero-width space
+    value = value.replace("\u200c", "")  # zero-width non-joiner
+    value = value.replace("\u200d", "")  # zero-width joiner
+    # Convert any whitespace to normal spaces so collapse works consistently.
+    value = "".join((" " if ch.isspace() else ch) for ch in value)
+    return re.sub(r"[ ]+", " ", value).strip()
 
 
 class MeshHandler:
@@ -115,7 +122,14 @@ class MeshHandler:
             if result.returncode != 0 or not result.stdout:
                 return {}
 
-            payload = json.loads(result.stdout)
+            raw = result.stdout.strip()
+            # Some meshcli builds may print non-JSON preamble; extract the JSON object if needed.
+            if not raw.startswith("{"):
+                start = raw.find("{")
+                end = raw.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    raw = raw[start : end + 1]
+            payload = json.loads(raw)
             if not isinstance(payload, dict):
                 return {}
 
