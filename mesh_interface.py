@@ -1425,27 +1425,16 @@ class MeshHandler:
                     name_match = (first_word == name_stripped)
                     
                     if name_match:
-                        print(f"[DEBUG] ✓ Found line with name '{name_stripped}' (first word: '{first_word}'): {line_stripped}")
-                        # Try to extract node ID - it's usually a hex string (8+ chars)
-                        # Look for hex strings that are likely node IDs
-                        # Pattern: name, then spaces, then type, then spaces, then node_id
-                        # The node_id is typically 8-16 hex characters
+                        print(f"[DEBUG] ✓✓✓ MATCH! Found line with name '{name_stripped}' (first word: '{first_word}'): {line_stripped}")
+                        # Extract node ID from the line
+                        # Pattern: "name <spaces> type <spaces> node_id <spaces> hop_count"
+                        # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                         # Split by whitespace - filter out empty strings
-                        # IMPORTANT: Use the original line (not stripped) to preserve spacing for splitting
                         parts = [p.strip() for p in line.split() if p.strip()]
                         print(f"[DEBUG] Line parts: {parts}")
                         
-                        # Verify the first part matches the name (accounting for any differences)
-                        if parts and parts[0].strip() != name_stripped:
-                            # Sometimes the name in the line might have slight differences
-                            # Check if they're close enough (e.g., one has trailing space that got stripped)
-                            first_part_clean = parts[0].strip()
-                            if first_part_clean == name_stripped:
-                                print(f"[DEBUG] Name matches after cleaning: '{first_part_clean}' == '{name_stripped}'")
-                            else:
-                                print(f"[DEBUG] WARNING: First part '{first_part_clean}' doesn't match name '{name_stripped}', but continuing anyway...")
-                        
                         # Look for the type (CLI, REP, etc.) and get the node ID after it
+                        node_id_found = None
                         for i, part in enumerate(parts):
                             # Node ID is usually after the type (CLI, REP, etc.)
                             # and is a hex string
@@ -1454,36 +1443,39 @@ class MeshHandler:
                                 print(f"[DEBUG] Checking candidate '{node_id_candidate}' after type '{part}'")
                                 # Check if it looks like a node ID (hex string, 8+ chars)
                                 if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                    node_id = node_id_candidate
-                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}'")
-                                    # Store in database for future lookups
-                                    try:
-                                        import database
-                                        database.store_contact(name_stripped, node_id)
-                                        print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id}' in database")
-                                    except Exception as e:
-                                        print(f"[DEBUG] Error storing contact in database: {e}")
-                                    return node_id
+                                    node_id_found = node_id_candidate
+                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id_found}' after type '{part}'")
+                                    break
                                 else:
                                     print(f"[DEBUG] Candidate '{node_id_candidate}' doesn't match hex pattern")
+                        
+                        # If we found a node ID, store it and return it
+                        if node_id_found:
+                            try:
+                                import database
+                                database.store_contact(name_stripped, node_id_found)
+                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id_found}' in database")
+                            except Exception as e:
+                                print(f"[DEBUG] Error storing contact in database: {e}")
+                            return node_id_found
                         
                         # Fallback: try to find any hex string in the line (8+ chars)
                         # Use word boundary to avoid partial matches
                         print(f"[DEBUG] Trying fallback regex to find hex string...")
                         node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
                         if node_id_match:
-                            node_id = node_id_match.group(1)
-                            print(f"[DEBUG] ✓ Found node ID '{node_id}' using fallback regex")
+                            node_id_found = node_id_match.group(1)
+                            print(f"[DEBUG] ✓ Found node ID '{node_id_found}' using fallback regex")
                             # Store in database for future lookups
                             try:
                                 import database
-                                database.store_contact(name_stripped, node_id)
-                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id}' in database")
+                                database.store_contact(name_stripped, node_id_found)
+                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id_found}' in database")
                             except Exception as e:
                                 print(f"[DEBUG] Error storing contact in database: {e}")
-                            return node_id
+                            return node_id_found
                         
-                        print(f"[DEBUG] ✗✗✗ WARNING: Could not extract node ID from line: {line}")
+                        print(f"[DEBUG] ✗✗✗ ERROR: Could not extract node ID from line: {line}")
                         print(f"[DEBUG] Parts were: {parts}")
                     else:
                         print(f"[DEBUG] Name '{name_stripped}' not found in line (checked: '{line_stripped[:50]}...')")
