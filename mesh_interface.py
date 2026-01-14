@@ -403,87 +403,200 @@ class MeshHandler:
         
         Returns:
             True if successful, False otherwise
+            
+        Note: If automatic configuration fails, you may need to manually configure
+        the radio using meshcli commands or the MeshCore mobile app.
+        
+        WARNING: Some MeshCore firmware versions may not support changing radio
+        parameters via CLI commands. If this method fails, you may need to:
+        1. Configure the radio via the MeshCore mobile app
+        2. Use a different firmware version that supports parameter changes
+        3. Configure the radio at firmware compile time
         """
         try:
             preset = self.USA_CANADA_PRESET
             freq_mhz = preset['frequency'] / 1000000  # 910.525
+            freq_hz = preset['frequency']  # 910525000
             bw_khz = preset['bandwidth'] / 1000  # 62.5
+            bw_hz = preset['bandwidth']  # 62500
             
             print("Configuring radio to USA/Canada preset...")
             
             # Try different command patterns for setting radio parameters
             # MeshCore CLI typically uses: set <param> <value> or config <param> <value>
+            # Try both MHz/kHz and Hz formats as different firmwares may expect different units
             settings_to_apply = [
-                ("radio_freq", str(freq_mhz), "Frequency (MHz)"),
-                ("radio_bw", str(bw_khz), "Bandwidth (kHz)"),
-                ("radio_sf", str(preset['spreading_factor']), "Spreading Factor"),
-                ("radio_cr", str(preset['coding_rate']), "Coding Rate"),
-                ("tx_power", str(preset['power']), "TX Power (dBm)"),
+                ("radio_freq", [
+                    (str(freq_mhz), "MHz"),
+                    (str(freq_hz), "Hz"),
+                    (str(int(freq_hz)), "Hz (int)"),
+                ], "Frequency"),
+                ("radio_bw", [
+                    (str(bw_khz), "kHz"),
+                    (str(bw_hz), "Hz"),
+                    (str(int(bw_hz)), "Hz (int)"),
+                ], "Bandwidth"),
+                ("radio_sf", [
+                    (str(preset['spreading_factor']), ""),
+                ], "Spreading Factor"),
+                ("radio_cr", [
+                    (str(preset['coding_rate']), ""),
+                ], "Coding Rate"),
+                ("tx_power", [
+                    (str(preset['power']), ""),
+                ], "TX Power (dBm)"),
             ]
             
             applied_settings = []
             
-            for param_name, param_value, param_desc in settings_to_apply:
-                # Try multiple command patterns
-                commands_to_try = [
-                    ("set", self._build_meshcli_cmd("set", param_name, param_value)),
-                    ("config", self._build_meshcli_cmd("config", param_name, param_value)),
-                    ("set-param", self._build_meshcli_cmd("set-" + param_name, param_value)),
-                    ("direct", self._build_meshcli_cmd(param_name, param_value)),
-                ]
-                
+            # First, try preset/region commands if available
+            preset_commands = [
+                ("preset", self._build_meshcli_cmd("preset", "usa")),
+                ("preset", self._build_meshcli_cmd("preset", "usa-canada")),
+                ("preset", self._build_meshcli_cmd("preset", "US")),
+                ("region", self._build_meshcli_cmd("region", "usa")),
+                ("region", self._build_meshcli_cmd("region", "US")),
+                ("set-preset", self._build_meshcli_cmd("set-preset", "usa")),
+            ]
+            
+            preset_success = False
+            for preset_name, preset_cmd in preset_commands:
+                try:
+                    result = subprocess.run(
+                        preset_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    if result.returncode == 0:
+                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                            print(f"  ✓ Applied preset using '{preset_name}' command")
+                            preset_success = True
+                            time.sleep(1.0)  # Wait for preset to apply
+                            break
+                except:
+                    continue
+            
+            # If preset worked, verify it applied correctly
+            if preset_success:
+                time.sleep(1.0)
+                current_info = self.get_radio_link_info()
+                if current_info:
+                    import json
+                    try:
+                        config = json.loads(current_info)
+                        freq_ok = abs(config.get('radio_freq', 0) - freq_mhz) < 0.1
+                        bw_ok = abs(config.get('radio_bw', 0) - bw_khz) < 1.0
+                        sf_ok = config.get('radio_sf', 0) == preset['spreading_factor']
+                        if freq_ok and bw_ok and sf_ok:
+                            print("  Preset applied successfully!")
+                            return True
+                    except:
+                        pass
+            
+            # If preset didn't work or didn't apply correctly, try individual settings
+            for param_name, value_options, param_desc in settings_to_apply:
                 success = False
                 last_error = None
                 last_cmd_name = None
+                last_value_used = None
                 
-                for cmd_name, cmd in commands_to_try:
-                    try:
-                        result = subprocess.run(
-                            cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=5.0
-                        )
-                        
-                        # Check if command succeeded
-                        if result.returncode == 0:
-                            # Check for error messages in stderr
-                            if result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower()):
-                                last_error = result.stderr.strip()
+                # Try each value format (MHz, Hz, etc.)
+                for param_value, value_unit in value_options:
+                    if success:
+                        break
+                    
+                    # Try multiple command patterns
+                    commands_to_try = [
+                        ("set", self._build_meshcli_cmd("set", param_name, param_value)),
+                        ("config", self._build_meshcli_cmd("config", param_name, param_value)),
+                        ("set-param", self._build_meshcli_cmd("set-" + param_name, param_value)),
+                        ("direct", self._build_meshcli_cmd(param_name, param_value)),
+                    ]
+                    
+                    for cmd_name, cmd in commands_to_try:
+                        try:
+                            result = subprocess.run(
+                                cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=5.0
+                            )
+                            
+                            # Debug: Check actual command output to see if it's working
+                            stdout_text = result.stdout.strip() if result.stdout else ""
+                            stderr_text = result.stderr.strip() if result.stderr else ""
+                            
+                            # Check if command succeeded
+                            if result.returncode == 0:
+                                # Check for error messages in stderr
+                                if result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower()):
+                                    last_error = result.stderr.strip()
+                                    last_cmd_name = cmd_name
+                                    last_value_used = f"{param_value} {value_unit}".strip()
+                                    continue
+                                
+                                # Check if stdout indicates success or failure
+                                # Some CLIs return success but indicate the command wasn't recognized
+                                if stdout_text and ("unknown" in stdout_text.lower() or "invalid" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                                    last_error = stdout_text
+                                    last_cmd_name = cmd_name
+                                    last_value_used = f"{param_value} {value_unit}".strip()
+                                    continue
+                                
+                                # Success! But we'll verify it actually worked after all settings are applied
+                                # However, we've seen that exit code 0 doesn't mean the value actually changed
+                                # So we mark it as "attempted" but will verify later
+                                value_display = f"{param_value} {value_unit}".strip()
+                                print(f"  ✓ Command accepted for {param_desc} = {value_display} (will verify)")
+                                success = True
+                                applied_settings.append((param_name, param_desc))
+                                # Save immediately after setting (some radios require this)
+                                try:
+                                    save_result = subprocess.run(
+                                        self._build_meshcli_cmd("save"),
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=2.0
+                                    )
+                                except:
+                                    pass
+                                time.sleep(0.5)  # Small delay between settings
+                                break
+                            else:
+                                last_error = result.stderr.strip() if result.stderr else f"Exit code: {result.returncode}"
                                 last_cmd_name = cmd_name
-                                continue
-                            # Success!
-                            print(f"  ✓ Set {param_desc} using '{cmd_name}' command")
-                            success = True
-                            applied_settings.append((param_name, param_desc))
-                            break
-                        else:
-                            last_error = result.stderr.strip() if result.stderr else f"Exit code: {result.returncode}"
+                                last_value_used = f"{param_value} {value_unit}".strip()
+                        except subprocess.TimeoutExpired:
+                            last_error = "Command timed out"
                             last_cmd_name = cmd_name
-                    except subprocess.TimeoutExpired:
-                        last_error = "Command timed out"
-                        last_cmd_name = cmd_name
-                        continue
-                    except FileNotFoundError:
-                        last_error = "meshcli command not found"
-                        last_cmd_name = cmd_name
-                        continue
-                    except Exception as e:
-                        last_error = str(e)
-                        last_cmd_name = cmd_name
-                        continue
+                            last_value_used = f"{param_value} {value_unit}".strip()
+                            continue
+                        except FileNotFoundError:
+                            last_error = "meshcli command not found"
+                            last_cmd_name = cmd_name
+                            last_value_used = f"{param_value} {value_unit}".strip()
+                            continue
+                        except Exception as e:
+                            last_error = str(e)
+                            last_cmd_name = cmd_name
+                            last_value_used = f"{param_value} {value_unit}".strip()
+                            continue
                 
                 if not success:
-                    print(f"  ✗ Could not set {param_desc} ({param_name}={param_value})")
+                    print(f"  ✗ Could not set {param_desc}")
                     if last_error:
-                        print(f"    Last attempt ({last_cmd_name}): {last_error}")
+                        print(f"    Last attempt: '{last_cmd_name}' with value '{last_value_used}'")
+                        print(f"    Error: {last_error}")
             
             # Try to save/commit configuration (some radios require this)
+            # Also try writing config after each setting
             save_commands = [
                 self._build_meshcli_cmd("save"),
                 self._build_meshcli_cmd("commit"),
                 self._build_meshcli_cmd("write"),
                 self._build_meshcli_cmd("save-config"),
+                self._build_meshcli_cmd("write-config"),
             ]
             
             for cmd in save_commands:
@@ -495,13 +608,14 @@ class MeshHandler:
                         timeout=3.0
                     )
                     if result.returncode == 0:
-                        print("  Configuration saved")
-                        break
+                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                            print("  Configuration saved")
+                            break
                 except:
                     continue
             
-            # Wait for settings to apply
-            time.sleep(1.0)
+            # Wait for settings to apply and radio to process changes
+            time.sleep(2.0)  # Increased wait time
             
             # Verify settings were actually applied by reading config back
             print("Verifying radio configuration...")
@@ -560,6 +674,15 @@ class MeshHandler:
                         for issue in issues:
                             print(f"    ⚠ {issue}")
                         print("  Radio may not be discoverable by other nodes on different frequencies.")
+                        print("  NOTE: Radio settings may need to be configured manually via meshcli or firmware.")
+                        print("  The 'set' command may not be supported for radio parameters in this firmware version.")
+                        print("  Try running these commands manually to check if they work:")
+                        port_str = f"-s {self.serial_port}" if self.serial_port else ""
+                        print(f"    meshcli {port_str} help")
+                        print(f"    meshcli {port_str} set radio_freq {freq_mhz}")
+                        print(f"    meshcli {port_str} set radio_bw {bw_khz}")
+                        print(f"    meshcli {port_str} set radio_sf {preset['spreading_factor']}")
+                        print("  Or configure via the MeshCore mobile app.")
                         return len(verified) >= 3  # At least 3 settings correct
                     
                     print("  All settings verified successfully!")
