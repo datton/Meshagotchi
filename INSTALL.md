@@ -55,8 +55,7 @@ As of 2025, use **Raspberry Pi OS (64-bit)** based on Debian Bookworm or Trixie.
 
 **Option B: SSH (Recommended)**
 ```bash
-ssh username@raspberry-pi-ip-address
-# Replace 'username' with your Pi username
+ssh meshagotchi@raspberry-pi-ip-address
 # Replace 'raspberry-pi-ip-address' with your Pi's IP
 ```
 
@@ -235,9 +234,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/Meshagotchi
-ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/Meshagotchi/main.py
+User=meshogotchi
+WorkingDirectory=/home/meshagotchi/Meshagotchi
+ExecStart=/usr/bin/python3 /home/meshagotchi/Meshagotchi/main.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -246,8 +245,6 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 ```
-
-**Important**: Replace `YOUR_USERNAME` with your actual Raspberry Pi username (e.g., `pi` or your custom username).
 
 ### Enable and Start Service
 
