@@ -49,6 +49,12 @@ class MeshAgotchiDaemon:
         )
         print("MeshHandler initialized.")
         
+        # Initialize and configure radio
+        if not self.mesh_handler.initialize_radio():
+            print("Warning: Radio initialization failed. Continuing anyway...")
+            print("Game may not function correctly without radio connection.")
+        print()  # Blank line for readability
+        
         # Create GameEngine
         self.game_engine = game_engine.GameEngine()
         print("GameEngine initialized.")
