@@ -829,51 +829,117 @@ class MeshHandler:
         try:
             # Try various MeshCore CLI commands to set name
             # Common patterns: set-name, name, setname, node-name
+            # Also try: set name <name> (similar to set radio format)
             name_commands = [
-                self._build_meshcli_cmd("set-name", name),
-                self._build_meshcli_cmd("name", name),
-                self._build_meshcli_cmd("setname", name),
-                self._build_meshcli_cmd("node-name", name),
-                self._build_meshcli_cmd("set", "name", name),
+                ("set name", self._build_meshcli_cmd("set", "name", name)),
+                ("set-name", self._build_meshcli_cmd("set-name", name)),
+                ("name", self._build_meshcli_cmd("name", name)),
+                ("setname", self._build_meshcli_cmd("setname", name)),
+                ("node-name", self._build_meshcli_cmd("node-name", name)),
             ]
             
-            for cmd in name_commands:
+            for cmd_name, cmd in name_commands:
                 try:
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=3.0
+                        timeout=5.0
                     )
                     
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    
+                    # Check for error events (like error_code 6)
+                    if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                        continue
+                    
                     if result.returncode == 0:
+                        # Check for error messages
+                        if stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower()):
+                            continue
+                        if stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
+                            continue
+                        
                         # Allow time for name to be set
-                        time.sleep(0.2)
-                        return True
+                        time.sleep(0.5)
+                        
+                        # Verify the name was actually set
+                        current_info = self.get_radio_link_info()
+                        if current_info:
+                            import json
+                            try:
+                                config = json.loads(current_info)
+                                current_name = config.get('name', '')
+                                if current_name == name:
+                                    print(f"  ✓ Radio name set to '{name}' using '{cmd_name}' command")
+                                    return True
+                                else:
+                                    # Name command was accepted but didn't change the name
+                                    continue
+                            except:
+                                # If we can't verify, assume it worked
+                                print(f"  ✓ Radio name command accepted using '{cmd_name}' command (could not verify)")
+                                return True
+                        else:
+                            # If we can't verify, assume it worked
+                            print(f"  ✓ Radio name command accepted using '{cmd_name}' command (could not verify)")
+                            return True
                 except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+                except Exception as e:
                     continue
             
             # If none of the commands worked, try alternative approach
             # Some systems might require a different format
             alt_commands = [
-                self._build_meshcli_cmd("config", "name", name),
-                self._build_meshcli_cmd("set-config", "name", name),
+                ("config name", self._build_meshcli_cmd("config", "name", name)),
+                ("set-config name", self._build_meshcli_cmd("set-config", "name", name)),
             ]
             
-            for cmd in alt_commands:
+            for cmd_name, cmd in alt_commands:
                 try:
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
                         text=True,
-                        timeout=3.0
+                        timeout=5.0
                     )
+                    
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    
+                    # Check for error events
+                    if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                        continue
+                    
                     if result.returncode == 0:
-                        time.sleep(0.2)
-                        return True
+                        if stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower()):
+                            continue
+                        if stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
+                            continue
+                        
+                        time.sleep(0.5)
+                        
+                        # Verify the name was actually set
+                        current_info = self.get_radio_link_info()
+                        if current_info:
+                            import json
+                            try:
+                                config = json.loads(current_info)
+                                current_name = config.get('name', '')
+                                if current_name == name:
+                                    print(f"  ✓ Radio name set to '{name}' using '{cmd_name}' command")
+                                    return True
+                            except:
+                                pass
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
+                except Exception:
+                    continue
             
+            print(f"  ✗ Could not set radio name to '{name}'")
+            print("  All name setting commands were rejected or failed")
             return False
             
         except Exception as e:
