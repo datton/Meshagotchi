@@ -253,6 +253,7 @@ class MeshHandler:
         
         try:
             # Step 1: Get radio version information
+            print("[DEBUG] Getting radio version...")
             version_info = self.get_radio_version()
             if version_info:
                 self.radio_version = version_info
@@ -261,6 +262,7 @@ class MeshHandler:
                 print("Warning: Could not retrieve radio version")
             
             # Step 2: Get radio link information
+            print("[DEBUG] Getting radio link info...")
             link_info = self.get_radio_link_info()
             if link_info:
                 self.radio_info = link_info
@@ -278,6 +280,7 @@ class MeshHandler:
                 print(f"  Power: {self.USA_CANADA_PRESET['power']} dBm")
                 
                 # Step 4: Set radio name to Meshagotchi
+                print("[DEBUG] Setting radio name to 'Meshagotchi'...")
                 if self.set_radio_name("Meshagotchi"):
                     print("Radio name set to: Meshagotchi")
                 else:
@@ -464,6 +467,7 @@ class MeshHandler:
             # First, try the combined radio command format: set radio freq,bw,sf,cr
             # Format: set radio <freq_MHz>,<bw_kHz>,<spreading_factor>,<coding_rate>
             combined_radio_command = f"{freq_mhz},{bw_khz},{preset['spreading_factor']},{preset['coding_rate']}"
+            print(f"  [DEBUG] Trying combined radio command format: {combined_radio_command}")
             combined_commands = [
                 ("set radio", self._build_meshcli_cmd("set", "radio", combined_radio_command)),
                 ("set-radio", self._build_meshcli_cmd("set-radio", combined_radio_command)),
@@ -473,41 +477,63 @@ class MeshHandler:
             combined_success = False
             for cmd_name, cmd in combined_commands:
                 try:
+                    print(f"  [DEBUG] Trying command: {' '.join(cmd)}")
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
                         text=True,
                         timeout=5.0
                     )
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    print(f"  [DEBUG] Command exit code: {result.returncode}")
+                    if stdout_text:
+                        print(f"  [DEBUG] stdout: {stdout_text[:200]}")  # First 200 chars
+                    if stderr_text:
+                        print(f"  [DEBUG] stderr: {stderr_text[:200]}")  # First 200 chars
+                    
                     # Check for error events
-                    output = (result.stdout or "") + (result.stderr or "")
+                    output = stdout_text + stderr_text
                     if "EventType.ERROR" in output or "command_error" in output:
+                        print(f"  [DEBUG] Error event detected in output, trying next command...")
                         continue
                     if result.returncode == 0:
-                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                        if not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
                             print(f"  ✓ Applied radio settings using '{cmd_name}' command: {combined_radio_command}")
                             combined_success = True
                             time.sleep(1.5)  # Wait for settings to apply
                             break
-                except:
+                        else:
+                            print(f"  [DEBUG] Command returned 0 but stderr contains error, trying next...")
+                    else:
+                        print(f"  [DEBUG] Command failed with exit code {result.returncode}")
+                except Exception as e:
+                    print(f"  [DEBUG] Exception running command: {e}")
                     continue
             
             # If combined command worked, verify it applied correctly
             if combined_success:
+                print("  [DEBUG] Combined command succeeded, verifying settings...")
                 time.sleep(1.0)
                 current_info = self.get_radio_link_info()
                 if current_info:
                     import json
                     try:
                         config = json.loads(current_info)
+                        print(f"  [DEBUG] Current config: freq={config.get('radio_freq')}, bw={config.get('radio_bw')}, sf={config.get('radio_sf')}")
                         freq_ok = abs(config.get('radio_freq', 0) - freq_mhz) < 0.1
                         bw_ok = abs(config.get('radio_bw', 0) - bw_khz) < 1.0
                         sf_ok = config.get('radio_sf', 0) == preset['spreading_factor']
+                        print(f"  [DEBUG] Verification: freq_ok={freq_ok}, bw_ok={bw_ok}, sf_ok={sf_ok}")
                         if freq_ok and bw_ok and sf_ok:
                             print("  Radio settings verified successfully!")
                             return True
-                    except:
-                        pass
+                        else:
+                            print("  [DEBUG] Settings not verified correctly, continuing with individual settings...")
+                    except Exception as e:
+                        print(f"  [DEBUG] Error parsing config for verification: {e}")
+                else:
+                    print("  [DEBUG] Could not get radio info for verification")
             
             # Try preset/region commands if combined command didn't work
             preset_commands = [
@@ -519,26 +545,38 @@ class MeshHandler:
                 ("set-preset", self._build_meshcli_cmd("set-preset", "usa")),
             ]
             
+            if not combined_success:
+                print("  [DEBUG] Trying preset/region commands...")
             preset_success = False
             for preset_name, preset_cmd in preset_commands:
                 try:
+                    print(f"  [DEBUG] Trying preset command: {' '.join(preset_cmd)}")
                     result = subprocess.run(
                         preset_cmd,
                         capture_output=True,
                         text=True,
                         timeout=5.0
                     )
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    stderr_text = result.stderr.strip() if result.stderr else ""
+                    print(f"  [DEBUG] Preset command exit code: {result.returncode}")
+                    if stdout_text:
+                        print(f"  [DEBUG] Preset stdout: {stdout_text[:150]}")
+                    if stderr_text:
+                        print(f"  [DEBUG] Preset stderr: {stderr_text[:150]}")
                     if result.returncode == 0:
                         # Check for error events
-                        output = (result.stdout or "") + (result.stderr or "")
+                        output = stdout_text + stderr_text
                         if "EventType.ERROR" in output or "command_error" in output:
+                            print(f"  [DEBUG] Error event in preset command, trying next...")
                             continue
-                        if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                        if not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
                             print(f"  ✓ Applied preset using '{preset_name}' command")
                             preset_success = True
                             time.sleep(1.0)  # Wait for preset to apply
                             break
-                except:
+                except Exception as e:
+                    print(f"  [DEBUG] Exception in preset command: {e}")
                     continue
             
             # If preset worked, verify it applied correctly
@@ -583,6 +621,7 @@ class MeshHandler:
                     
                     for cmd_name, cmd in commands_to_try:
                         try:
+                            print(f"    [DEBUG] Trying: {' '.join(cmd)}")
                             result = subprocess.run(
                                 cmd,
                                 capture_output=True,
@@ -593,18 +632,26 @@ class MeshHandler:
                             # Debug: Check actual command output to see if it's working
                             stdout_text = result.stdout.strip() if result.stdout else ""
                             stderr_text = result.stderr.strip() if result.stderr else ""
+                            print(f"    [DEBUG] Exit code: {result.returncode}")
+                            if stdout_text:
+                                print(f"    [DEBUG] stdout: {stdout_text[:150]}")
+                            if stderr_text:
+                                print(f"    [DEBUG] stderr: {stderr_text[:150]}")
                             
                             # Check for error events in output (meshcli may output error events)
                             # Error format: "Error : Event(type=<EventType.ERROR: 'command_error'>, payload={'error_code': 6}, ...)"
                             if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                                print(f"    [DEBUG] Error event detected!")
                                 # Extract error code if present
                                 error_match = re.search(r"error_code['\"]?\s*:\s*(\d+)", stdout_text + stderr_text)
                                 if error_match:
                                     error_code = error_match.group(1)
                                     last_error = f"Command rejected by radio (error_code: {error_code})"
+                                    print(f"    [DEBUG] Error code: {error_code}")
                                     # If error_code 6, commands are not supported
                                     if error_code == "6":
                                         commands_not_supported = True
+                                        print(f"    [DEBUG] error_code 6 detected - commands not supported")
                                 else:
                                     last_error = "Command rejected by radio (error event)"
                                 last_cmd_name = cmd_name
