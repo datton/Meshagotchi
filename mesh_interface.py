@@ -231,7 +231,16 @@ class MeshHandler:
                 print(f"[DEBUG] Using node ID '{node_id_actual}' instead of name '{node_id}'")
                 node_id = node_id_actual
             else:
-                print(f"[DEBUG] ERROR: Could not find node ID for '{node_id}' - message may fail!")
+                # Try direct extraction from contacts list
+                print(f"[DEBUG] Trying direct extraction from contacts list...")
+                node_id_actual = self._extract_node_id_from_contacts_list(node_id)
+                if node_id_actual:
+                    print(f"[DEBUG] Found node ID '{node_id_actual}' from contacts list")
+                    node_id = node_id_actual
+                else:
+                    print(f"[DEBUG] CRITICAL ERROR: Could not find node ID for '{node_id}' - CANNOT SEND")
+                    print(f"[DEBUG] DO NOT SEND - name '{node_id}' will not work as destination")
+                    return  # Don't queue the message if we can't find node ID
         
         # Sanitize message
         sanitized = self._sanitize_message(text)
@@ -270,11 +279,17 @@ class MeshHandler:
             if not re.match(r'^!?[a-fA-F0-9]{8,}$', node_id):
                 print(f"[DEBUG] '{node_id}' in queue looks like a name, looking up node ID...")
                 node_id_actual = self._get_node_id_from_name(node_id)
+                if not node_id_actual:
+                    # Try direct extraction from contacts list
+                    node_id_actual = self._extract_node_id_from_contacts_list(node_id)
+                
                 if node_id_actual:
                     print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', using node ID")
                     node_id = node_id_actual
                 else:
-                    print(f"[DEBUG] ERROR: Could not find node ID for '{node_id}' - will try anyway but may fail")
+                    print(f"[DEBUG] CRITICAL ERROR: Could not find node ID for '{node_id}' - CANNOT SEND")
+                    print(f"[DEBUG] Skipping message - name '{node_id}' will not work as destination")
+                    return  # Skip this message - don't try to send with a name
             
             # Ensure the contact is added before sending
             if node_id not in self.friends:
@@ -1368,6 +1383,83 @@ class MeshHandler:
         except Exception as e:
             print(f"[DEBUG] Error ensuring contact '{node_id}': {e}")
             return False
+    
+    def _extract_node_id_from_contacts_list(self, name: str) -> Optional[str]:
+        """
+        Extract node ID from contacts list by querying meshcli contacts command.
+        This is a direct lookup that parses the contacts list output.
+        
+        Args:
+            name: Node name to look up
+            
+        Returns:
+            Node ID if found, None otherwise
+        """
+        name = name.strip()
+        if not name:
+            return None
+        
+        print(f"[DEBUG] _extract_node_id_from_contacts_list: Looking up node ID for name '{name}'")
+        
+        try:
+            # Query contacts list directly
+            result = subprocess.run(
+                self._build_meshcli_cmd("contacts"),
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                output = result.stdout.strip()
+                lines = output.split('\n')
+                
+                # Find the line that starts with the name
+                name_stripped = name.strip()
+                for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith('>') or 'contacts in device' in line.lower():
+                        continue
+                    
+                    # Get first word (the name)
+                    line_parts = line.split()
+                    if line_parts and line_parts[0] == name_stripped:
+                        # Found matching line, extract node ID
+                        # Format: "name <spaces> type <spaces> node_id <spaces> hop_count"
+                        parts = [p.strip() for p in line.split() if p.strip()]
+                        print(f"[DEBUG] Found matching line, parts: {parts}")
+                        
+                        # Look for type (CLI, REP, etc.) and get node ID after it
+                        for i, part in enumerate(parts):
+                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
+                                node_id_candidate = parts[i + 1].strip()
+                                if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
+                                    print(f"[DEBUG] Extracted node ID: '{node_id_candidate}'")
+                                    # Store in database
+                                    try:
+                                        import database
+                                        database.store_contact(name_stripped, node_id_candidate)
+                                    except Exception as e:
+                                        print(f"[DEBUG] Error storing in database: {e}")
+                                    return node_id_candidate
+                        
+                        # Fallback: find any hex string in the line
+                        node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
+                        if node_id_match:
+                            node_id = node_id_match.group(1)
+                            print(f"[DEBUG] Extracted node ID (fallback): '{node_id}'")
+                            try:
+                                import database
+                                database.store_contact(name_stripped, node_id)
+                            except Exception as e:
+                                print(f"[DEBUG] Error storing in database: {e}")
+                            return node_id
+            
+            return None
+            
+        except Exception as e:
+            print(f"[DEBUG] Error extracting node ID from contacts list: {e}")
+            return None
     
     def _get_node_id_from_name(self, name: str) -> Optional[str]:
         """
