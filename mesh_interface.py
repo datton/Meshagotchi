@@ -262,22 +262,29 @@ class MeshHandler:
                 # Try to get the actual node ID from the contacts list
                 node_id_actual = self._get_node_id_from_name(node_id)
                 if node_id_actual and node_id_actual != node_id:
-                    print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', retrying...")
-                    # Retry with the actual node ID
-                    cmd = self._build_meshcli_cmd("msg", node_id_actual, message)
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
-                    stdout_text = result.stdout.strip() if result.stdout else ""
-                    stderr_text = result.stderr.strip() if result.stderr else ""
-                    print(f"[DEBUG] Retry with node ID - exit code: {result.returncode}")
-                    if stdout_text:
-                        print(f"[DEBUG] Retry msg stdout: {stdout_text}")
-                    if stderr_text:
-                        print(f"[DEBUG] Retry msg stderr: {stderr_text}")
+                    print(f"[DEBUG] Found node ID '{node_id_actual}' for name '{node_id}', retrying with node ID...")
+                    # Retry with the actual node ID (try both with and without ! prefix)
+                    for try_id in [node_id_actual, f"!{node_id_actual}"]:
+                        print(f"[DEBUG] Trying to send with node ID: '{try_id}'")
+                        cmd = self._build_meshcli_cmd("msg", try_id, message)
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=5.0
+                        )
+                        stdout_text = result.stdout.strip() if result.stdout else ""
+                        stderr_text = result.stderr.strip() if result.stderr else ""
+                        print(f"[DEBUG] Retry with node ID '{try_id}' - exit code: {result.returncode}")
+                        if stdout_text:
+                            print(f"[DEBUG] Retry msg stdout: {stdout_text}")
+                        if stderr_text:
+                            print(f"[DEBUG] Retry msg stderr: {stderr_text}")
+                        
+                        # If this worked, break out of the loop
+                        if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                            print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
+                            break
                 else:
                     # Try to add contact and retry
                     print(f"[DEBUG] Attempting to add contact and retry...")
@@ -1335,17 +1342,41 @@ class MeshHandler:
                 output = result.stdout.strip()
                 print(f"[DEBUG] Contacts list: {output[:200]}...")
                 
-                # Try to find the name in the contacts list
-                # Format varies - could be JSON, text, or structured
-                # Look for the name and extract associated node ID
+                # Parse contacts list format:
+                # Format appears to be: "name <spaces> type <spaces> node_id <spaces> hop_count"
+                # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                 lines = output.split('\n')
                 for line in lines:
+                    line = line.strip()
+                    if not line or line.startswith('>') or 'contacts in device' in line.lower():
+                        continue
+                    
+                    # Check if this line contains the name we're looking for
                     if name in line:
-                        # Try to extract node ID (usually starts with ! or is a hex string)
-                        node_id_match = re.search(r'(![a-fA-F0-9]+|[a-fA-F0-9]{8,})', line)
+                        print(f"[DEBUG] Found line with name: {line}")
+                        # Try to extract node ID - it's usually a hex string (8+ chars)
+                        # Look for hex strings that are likely node IDs
+                        # Pattern: name, then spaces, then type, then spaces, then node_id
+                        # The node_id is typically 8-16 hex characters
+                        parts = line.split()
+                        for i, part in enumerate(parts):
+                            # Node ID is usually after the type (CLI, REP, etc.)
+                            # and is a hex string
+                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
+                                node_id_candidate = parts[i + 1]
+                                # Check if it looks like a node ID (hex string, 8+ chars)
+                                if re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
+                                    node_id = node_id_candidate
+                                    # Try with ! prefix (some formats use ! prefix)
+                                    node_id_with_prefix = f"!{node_id}"
+                                    print(f"[DEBUG] Found node ID '{node_id}' (will try '{node_id}' and '{node_id_with_prefix}')")
+                                    return node_id
+                        
+                        # Fallback: try to find any hex string in the line
+                        node_id_match = re.search(r'([a-fA-F0-9]{8,})', line)
                         if node_id_match:
                             node_id = node_id_match.group(1)
-                            print(f"[DEBUG] Found node ID '{node_id}' for name '{name}'")
+                            print(f"[DEBUG] Found node ID '{node_id}' using fallback regex")
                             return node_id
                 
                 # If not found, try parsing as JSON
@@ -1355,7 +1386,7 @@ class MeshHandler:
                     if isinstance(contacts, list):
                         for contact in contacts:
                             if isinstance(contact, dict):
-                                contact_name = contact.get('name', '')
+                                contact_name = contact.get('name', '').strip()
                                 contact_id = contact.get('id', '') or contact.get('node_id', '')
                                 if contact_name == name and contact_id:
                                     print(f"[DEBUG] Found node ID '{contact_id}' for name '{name}' in JSON")
@@ -1367,6 +1398,8 @@ class MeshHandler:
             
         except Exception as e:
             print(f"[DEBUG] Error getting node ID from name: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def add_friend(self, node_id: str) -> bool:
