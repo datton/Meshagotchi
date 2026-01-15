@@ -42,7 +42,6 @@ class MeshAgotchiDaemon:
         
         # Initialize database
         database.init_database()
-        print("Database initialized.")
         
         # Create MeshHandler
         # If your device is at /dev/ttyUSB0, pass serial_port="/dev/ttyUSB0"
@@ -54,17 +53,13 @@ class MeshAgotchiDaemon:
             max_message_length=200,
             serial_port=serial_port
         )
-        print("MeshHandler initialized.")
         
         # Initialize and configure radio
         if not self.mesh_handler.initialize_radio():
             print("Warning: Radio initialization failed. Continuing anyway...")
-            print("Game may not function correctly without radio connection.")
-        print()  # Blank line for readability
         
         # Create GameEngine
         self.game_engine = game_engine.GameEngine()
-        print("GameEngine initialized.")
         
         # Initialize notification check time
         self.last_notification_check = datetime.now()
@@ -72,9 +67,7 @@ class MeshAgotchiDaemon:
         # Initialize advert flood time (start immediately)
         self.last_advert_flood = datetime.now()
         
-        print("MeshAgotchi daemon ready!")
-        print("Listening for messages via MeshCore CLI...")
-        print("Press Ctrl+C to stop.\n")
+        print("MeshAgotchi ready. Listening for messages...")
     
     def run(self):
         """Main event loop."""
@@ -89,35 +82,18 @@ class MeshAgotchiDaemon:
                 
                 if message:
                     sender_node_id, command_text = message
-                    print(f"[{datetime.now()}] *** MESSAGE RECEIVED ***")
-                    print(f"  From: {sender_node_id}")
-                    print(f"  Command: {command_text}")
-
+                    
                     # If we can't resolve sender to a node id, we cannot safely process commands
                     # (user/pet identity depends on node_id) and we definitely cannot reply.
                     if sender_node_id is None:
-                        print("[DEBUG] Skipping command processing: sender node id is unknown (None).")
                         continue
                     
                     # Process command
-                    print(f"[DEBUG] Processing command with game engine...")
                     response = self.game_engine.process_command(sender_node_id, command_text)
-                    print(f"[DEBUG] Game engine response: {response[:200]}...")
                     
                     # Send response
-                    if response:
-                        # IMPORTANT: Destination MUST be the hex node id.
-                        # If we couldn't resolve the sender into a node id, we cannot reply.
-                        if sender_node_id is None:
-                            print("[DEBUG] Cannot send response: sender node id is unknown (None).")
-                        else:
-                            print(f"[DEBUG] Sending response to {sender_node_id}...")
-                            self.mesh_handler.send(sender_node_id, response)
-                            print(f"[{datetime.now()}] *** RESPONSE SENT ***")
-                            print(f"  To: {sender_node_id}")
-                            print(f"  Response: {response[:100]}...")
-                    else:
-                        print(f"[DEBUG] No response to send (response was empty)")
+                    if response and sender_node_id:
+                        self.mesh_handler.send(sender_node_id, response)
                 
                 # Process pending messages in queue
                 self.mesh_handler.process_pending_messages()
@@ -138,10 +114,8 @@ class MeshAgotchiDaemon:
                 now = datetime.now()
                 time_since_advert = (now - self.last_advert_flood).total_seconds()
                 if time_since_advert >= self.advert_flood_interval:
-                    print(f"\n[{now}] Flooding zero-hop adverts to maintain discoverability...")
                     self.mesh_handler.flood_advert(count=5, delay=0.5, zero_hop=True)
                     self.last_advert_flood = now
-                    print(f"Advert flood complete. Next flood in {self.advert_flood_interval / 3600:.1f} hours.\n")
                 
                 # Check for periodic notifications
                 time_since_check = (now - self.last_notification_check).total_seconds()
@@ -167,7 +141,6 @@ class MeshAgotchiDaemon:
             notifications = self.game_engine.check_and_send_notifications()
             
             for node_id, message in notifications:
-                print(f"[{datetime.now()}] Notification to {node_id}: {message[:50]}...")
                 self.mesh_handler.send(node_id, message)
             
             # Process notification queue
