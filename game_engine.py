@@ -226,7 +226,61 @@ class GameEngine:
         if not pet.get('is_alive'):
             return f"Pet died: {pet.get('death_reason', 'Unknown')}. Use /hatch for new pet."
         
-        return f"Status: {pet['age_stage']}, Health: {pet['health']}/100, Alive: Yes"
+        # Calculate time alive
+        birth_time = datetime.datetime.fromisoformat(pet['birth_time'])
+        now = datetime.datetime.now()
+        hours_old = (now - birth_time).total_seconds() / 3600.0
+        
+        # Format time alive
+        if hours_old < 24:
+            time_alive = f"{hours_old:.1f} hours"
+        else:
+            days = hours_old / 24.0
+            time_alive = f"{days:.1f} days ({hours_old:.1f} hours)"
+        
+        # Calculate time until next evolution
+        age_stage = pet['age_stage']
+        time_until_evolution = None
+        
+        if age_stage == 'egg':
+            hours_until = self.AGE_CHILD_MAX - hours_old
+            if hours_until > 0:
+                time_until_evolution = f"{hours_until:.1f} hours until child"
+        elif age_stage == 'child':
+            hours_until = self.AGE_TEEN_MAX - hours_old
+            if hours_until > 0:
+                if hours_until < 24:
+                    time_until_evolution = f"{hours_until:.1f} hours until teen"
+                else:
+                    days_until = hours_until / 24.0
+                    time_until_evolution = f"{days_until:.1f} days until teen"
+        elif age_stage == 'teen':
+            hours_until = self.AGE_TEEN_MAX - hours_old
+            if hours_until > 0:
+                if hours_until < 24:
+                    time_until_evolution = f"{hours_until:.1f} hours until adult"
+                else:
+                    days_until = hours_until / 24.0
+                    time_until_evolution = f"{days_until:.1f} days until adult"
+        elif age_stage == 'adult':
+            hours_until = self.AGE_ADULT_MAX - hours_old
+            if hours_until > 0:
+                if hours_until < 24:
+                    time_until_evolution = f"{hours_until:.1f} hours until elder"
+                else:
+                    days_until = hours_until / 24.0
+                    time_until_evolution = f"{days_until:.1f} days until elder"
+        # elder -> death: don't show time until death
+        
+        # Build status message
+        status = f"Status: {age_stage}\n"
+        status += f"Health: {pet['health']}/100\n"
+        status += f"Alive: {time_alive}"
+        
+        if time_until_evolution:
+            status += f"\nNext evolution: {time_until_evolution}"
+        
+        return status
     
     def _handle_name(self, node_id: str, pet: Optional[Dict], name: str) -> str:
         """Handle /name command - assign name to pet."""
