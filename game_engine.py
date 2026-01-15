@@ -77,6 +77,8 @@ class GameEngine:
         # Route to handler
         if command == '/help':
             return self._handle_help()
+        elif command == '/howto':
+            return self._handle_howto()
         elif command == '/hatch':
             return self._handle_hatch(node_id, user, pet)
         elif command == '/stats':
@@ -99,6 +101,7 @@ class GameEngine:
         return (
             "Commands:\n"
             "/help - Help\n"
+            "/howto - Game guide\n"
             "/hatch - New pet\n"
             "/stats - Stats & art\n"
             "/feed - Feed\n"
@@ -106,6 +109,45 @@ class GameEngine:
             "/play - Play\n"
             "/status - Status\n"
             "/name <n> - Name"
+        )
+    
+    def _handle_howto(self) -> str:
+        """Return comprehensive game guide."""
+        return (
+            "MeshAgotchi - Virtual Pet Game\n"
+            "==============================\n\n"
+            "HOW TO PLAY:\n"
+            "1. Start: Use /hatch to create your pet\n"
+            "2. Care: Use /feed, /clean, and /play to maintain your pet\n"
+            "3. Monitor: Use /stats to see your pet's appearance and stats\n"
+            "4. Check: Use /status for quick status and evolution countdown\n\n"
+            "STATS:\n"
+            "- Health: Drops if hunger > 80 or hygiene < 20\n"
+            "- Hunger: Increases over time, use /feed to decrease\n"
+            "- Hygiene: Decreases over time, use /clean to increase\n"
+            "- Happiness: Decreases without interaction, use /play to increase\n"
+            "- Energy: Regenerates 10/hour, needed for /play (min 20)\n\n"
+            "EVOLUTION STAGES:\n"
+            "- Egg: 0-1 hour\n"
+            "- Child: 1-24 hours\n"
+            "- Teen: 24-72 hours\n"
+            "- Adult: 72-168 hours (7 days)\n"
+            "- Elder: 168+ hours\n\n"
+            "COMMANDS:\n"
+            "/hatch - Create new pet\n"
+            "/stats - View pet stats & ASCII art\n"
+            "/feed - Decrease hunger\n"
+            "/clean - Increase hygiene\n"
+            "/play - Increase happiness (costs 20 energy)\n"
+            "/status - Quick status & evolution countdown\n"
+            "/name <name> - Name your pet\n"
+            "/help - List all commands\n"
+            "/howto - This guide\n\n"
+            "TIPS:\n"
+            "- Check /status regularly to see evolution progress\n"
+            "- Keep hunger < 80 and hygiene > 20 to maintain health\n"
+            "- Energy regenerates automatically, wait if too low to play\n"
+            "- Each pet generation has unique traits based on your Node ID"
         )
     
     def _handle_hatch(self, node_id: str, user: Dict, pet: Optional[Dict]) -> str:
