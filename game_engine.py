@@ -214,7 +214,7 @@ class GameEngine:
         )
     
     def _handle_pet(self, node_id: str, pet: Optional[Dict]) -> str:
-        """Handle /pet command - show ASCII art only (up to 200 chars)."""
+        """Handle /pet command - show ASCII art only (up to 198 chars)."""
         if not pet:
             return "No active pet. Use /hatch to create one."
         
@@ -229,10 +229,8 @@ class GameEngine:
             pet.get('name')
         )
         
-        # Truncate to fit within 200 characters
-        if len(ascii_art) > 200:
-            ascii_art = ascii_art[:197] + "..."
-        
+        # Art is already limited to 198 chars by genetics.render_pet()
+        # Just return it as-is
         return ascii_art
     
     def _handle_feed(self, node_id: str, pet: Optional[Dict]) -> str:
