@@ -188,12 +188,16 @@ class MeshHandler:
                     continue
 
                 # JSON shows adv_name (human name) and public_key (hex id). Key is also public key.
+                # Use names as-is from JSON - they're already clean and don't need normalization
                 adv_name = info.get("adv_name") or info.get("name")
                 if not isinstance(adv_name, str) or not adv_name.strip():
                     continue
 
-                name_norm = _normalize_contact_name(adv_name)
-                pub_norm = _normalize_meshcli_text(public_key).lstrip("!").lower()
+                # Use the name as-is from JSON (just strip whitespace)
+                name_clean = adv_name.strip()
+                
+                # Extract hex ID from public_key - clean it but keep it as hex
+                pub_norm = public_key.lstrip("!").lower().strip()
                 if not re.fullmatch(r"[a-f0-9]{8,}", pub_norm):
                     continue
 
@@ -201,7 +205,8 @@ class MeshHandler:
                 # Your radios accept both the short and full public_key, but we prefer the short
                 # to match the device's own displayed destination format.
                 dest = pub_norm[:12] if len(pub_norm) >= 12 else pub_norm
-                mapping[name_norm] = dest
+                mapping[name_clean] = dest
+                print(f"[DEBUG] JSON contact: name='{name_clean}' -> hex_id='{dest}'")
 
             # Cache
             self._contacts_cache_ts = now
@@ -241,17 +246,119 @@ class MeshHandler:
         cmd.extend(args)
         return cmd
     
+    def _extract_json_from_output(self, output: str) -> str:
+        """
+        Extract JSON object from output that may contain non-JSON preamble.
+        
+        Some meshcli builds may print non-JSON text before the JSON object.
+        This method extracts the JSON portion from mixed output.
+        
+        Args:
+            output: Raw output string that may contain JSON
+            
+        Returns:
+            Extracted JSON string, or empty string if no JSON found
+        """
+        if not output:
+            return ""
+        
+        output = output.strip()
+        
+        # If already starts with JSON, return as-is
+        if output.startswith("{") or output.startswith("["):
+            return output
+        
+        # Try to find JSON object boundaries
+        start = output.find("{")
+        if start == -1:
+            start = output.find("[")
+        if start == -1:
+            return ""
+        
+        # Find matching closing brace/bracket
+        depth = 0
+        in_string = False
+        escape_next = False
+        
+        for i in range(start, len(output)):
+            char = output[i]
+            
+            if escape_next:
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                escape_next = True
+                continue
+            
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            
+            if not in_string:
+                if char in ('{', '['):
+                    depth += 1
+                elif char in ('}', ']'):
+                    depth -= 1
+                    if depth == 0:
+                        return output[start:i+1]
+        
+        # If we didn't find a complete JSON, try simple approach
+        end = output.rfind("}")
+        if end == -1:
+            end = output.rfind("]")
+        if end != -1 and end > start:
+            return output[start:end+1]
+        
+        return ""
+    
+    def _parse_json_response(self, output: str) -> Optional[Dict]:
+        """
+        Parse JSON response from meshcli output.
+        
+        Handles JSON extraction from output (removes preamble if present),
+        parses JSON, and returns parsed dict or None on error.
+        
+        Args:
+            output: Raw output string from meshcli command
+            
+        Returns:
+            Parsed JSON dict/list, or None if parsing fails
+        """
+        if not output:
+            return None
+        
+        try:
+            # Extract JSON from output
+            json_str = self._extract_json_from_output(output)
+            if not json_str:
+                # Try parsing the whole output as JSON
+                json_str = output.strip()
+            
+            # Parse JSON
+            parsed = json.loads(json_str)
+            return parsed
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG] JSON parsing error: {e}")
+            print(f"[DEBUG] Output was: {output[:200]}")
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Error parsing JSON response: {e}")
+            return None
+    
     def listen(self) -> Optional[Tuple[str, str]]:
         """
-        Polls MeshCore CLI for new messages using recv command.
-        MeshCore format: name(hop): message
+        Polls MeshCore CLI for new messages using recv command with JSON output.
+        
+        Expected JSON format: {"from": "node_name", "message": "text", "hop": 0}
+        Falls back to text parsing for backward compatibility with older firmware.
         
         Returns:
             Tuple of (sender_node_id, message_text) or None if no message
         """
         try:
-            # Use recv command to get next message
-            cmd = self._build_meshcli_cmd("recv")
+            # Use recv command with JSON output
+            cmd = self._build_meshcli_cmd("recv", json_output=True)
             print(f"[DEBUG] Listening for messages: {' '.join(cmd)}")
             result = subprocess.run(
                 cmd,
@@ -272,25 +379,27 @@ class MeshHandler:
             if result.returncode == 0 and stdout_text:
                 output = stdout_text
                 
-                # MeshCore CLI format: name(hop): message
-                # Example: "Meshagotchi(0): /help" or "t114_fdl(D): Hello"
-                # Also supports JSON format with -j flag
-                
                 node_id = None
                 message = None
                 
-                # Try JSON format first (if -j was used or output is JSON)
-                if output.startswith("{") and "from" in output.lower():
-                    node_match = re.search(r'"from"\s*:\s*"([^"]+)"', output)
-                    msg_match = re.search(r'"message"\s*:\s*"([^"]+)"', output)
+                # Try JSON format first
+                json_response = self._parse_json_response(output)
+                if json_response and isinstance(json_response, dict):
+                    # Extract from and message fields from JSON
+                    node_id = json_response.get("from") or json_response.get("sender")
+                    message = json_response.get("message") or json_response.get("msg")
                     
-                    if node_match and msg_match:
-                        node_id = node_match.group(1)
-                        message = msg_match.group(1)
+                    if node_id and message:
                         print(f"[DEBUG] Parsed JSON format: node_id={node_id}, message={message}")
-                else:
-                    # Parse MeshCore format: name(hop): message
-                    # Match pattern like "name(hop): message" or "name: message"
+                    else:
+                        print(f"[DEBUG] JSON response missing required fields: {json_response}")
+                        json_response = None
+                
+                # Fallback to text parsing if JSON parsing failed
+                if not node_id or not message:
+                    print(f"[DEBUG] Falling back to text parsing for recv output")
+                    # Parse MeshCore text format: name(hop): message
+                    # Example: "Meshagotchi(0): /help" or "t114_fdl(D): Hello"
                     match = re.match(r'^([^(]+)(?:\([^)]+\))?:\s*(.+)$', output)
                     if match:
                         node_id = match.group(1).strip()
@@ -312,134 +421,75 @@ class MeshHandler:
                 if node_id and message:
                     # CRITICAL: The node_id extracted from the message is the ADVERT NAME, not the hex node ID
                     # We MUST look up the hex node ID immediately - NEVER use the advert name as a node ID
-                    # First, clean the name (remove hop indicator, strip whitespace) but DON'T normalize yet
-                    # The contacts list format is: "name CLI hex_id hop_count"
-                    # Example: "Mattd-t1000-002 CLI 0b2c2328618f 0 hop"
+                    # First, extract the visible name pattern (alphanumeric, dash, underscore, dot)
+                    # This avoids corruption from invisible characters
                     name_raw = node_id.strip()
                     # Remove hop indicator if present: "name(hop)" -> "name"
                     name_raw = re.sub(r'\([^)]+\)', '', name_raw).strip()
-                    print(f"[DEBUG] Extracted raw name from message: '{name_raw}' (original: '{node_id}')")
                     
-                    # CRITICAL: Query contacts list directly and parse it to find the hex node ID
-                    # This is more reliable than normalization which can corrupt the name
+                    # Extract the actual name using regex - match the pattern of mesh names
+                    # This avoids issues with invisible characters corrupting the name
+                    name_match = re.search(r'([A-Za-z0-9][A-Za-z0-9_.-]*)', name_raw)
+                    if name_match:
+                        name_extracted = name_match.group(1)
+                    else:
+                        # Fallback: just use the raw name
+                        name_extracted = name_raw
+                    
+                    print(f"[DEBUG] Extracted name from message: '{name_extracted}' (original: '{node_id}', raw: '{name_raw}')")
+                    
+                    # CRITICAL: Use JSON contacts ONLY - it's clean, structured, and reliable
                     hex_node_id = None
                     
                     try:
-                        # Get contacts list directly
-                        result = subprocess.run(
-                            self._build_meshcli_cmd("contacts"),
-                            capture_output=True,
-                            text=True,
-                            timeout=5.0
-                        )
+                        # Get JSON contacts mapping (clean data from JSON, no text parsing)
+                        name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=True)  # Force refresh to get latest
+                        print(f"[DEBUG] JSON contacts available: {len(name_to_pub)} contacts")
+                        print(f"[DEBUG] JSON contacts keys: {list(name_to_pub.keys())}")
                         
-                        if result.returncode == 0 and result.stdout:
-                            contacts_output = result.stdout
-                            print(f"[DEBUG] Contacts list: {contacts_output[:200]}...")
+                        # Try exact match first (using extracted name)
+                        hex_node_id = name_to_pub.get(name_extracted)
+                        if hex_node_id:
+                            print(f"[DEBUG] Found hex node ID '{hex_node_id}' for name '{name_extracted}' via JSON contacts (exact match)")
+                        else:
+                            # Try case-insensitive match
+                            for json_name, json_hex in name_to_pub.items():
+                                if json_name.lower() == name_extracted.lower():
+                                    hex_node_id = json_hex
+                                    print(f"[DEBUG] Found hex node ID '{hex_node_id}' for name '{name_extracted}' via JSON contacts (case-insensitive match with '{json_name}')")
+                                    break
                             
-                            # Parse contacts list line by line
-                            # Format: "name                CLI   hex_id  hop_count" (with variable spacing)
-                            # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
-                            lines = contacts_output.splitlines()
-                            
-                            # Clean the name for matching - aggressively remove all invisible/non-printable chars
-                            # First normalize whitespace
-                            name_clean = _normalize_meshcli_text(name_raw).strip()
-                            # Then remove ALL non-printable characters except alphanumeric, dash, underscore, dot
-                            # This handles cases where invisible characters survive normalization
-                            name_clean = "".join(ch for ch in name_clean if ch.isprintable() and (ch.isalnum() or ch in '-_.'))
-                            name_clean = name_clean.strip()
-                            print(f"[DEBUG] Looking for contact with name: '{name_clean}' (cleaned from '{name_raw}', length={len(name_clean)}, repr={repr(name_clean)})")
-                            
-                            for line_num, line_original in enumerate(lines):
-                                line = _normalize_meshcli_text(line_original).strip()
-                                if not line or line.startswith('>') or 'contacts in device' in line.lower():
-                                    continue
-                                
-                                print(f"[DEBUG] Parsing line {line_num}: '{line[:80]}...'")
-                                
-                                # Split by whitespace to get parts (this handles variable spacing)
-                                parts = [p for p in line.split() if p]
-                                print(f"[DEBUG] Line {line_num} parts: {parts}")
-                                
-                                if len(parts) >= 3:
-                                    # parts[0] = name, parts[1] = type (CLI/REP), parts[2] = hex_id
-                                    contact_name = parts[0].strip()
-                                    contact_hex_id = parts[2].strip() if len(parts) > 2 else None
-                                    
-                                    # Clean contact name the same aggressive way for comparison
-                                    contact_name_clean = _normalize_meshcli_text(contact_name).strip()
-                                    contact_name_clean = "".join(ch for ch in contact_name_clean if ch.isprintable() and (ch.isalnum() or ch in '-_.'))
-                                    contact_name_clean = contact_name_clean.strip()
-                                    
-                                    print(f"[DEBUG] Line {line_num}: contact_name='{contact_name_clean}' (len={len(contact_name_clean)}, repr={repr(contact_name_clean)}), hex_id='{contact_hex_id}'")
-                                    print(f"[DEBUG] Comparing: '{contact_name_clean}' == '{name_clean}'? {contact_name_clean == name_clean}")
-                                    
-                                    # Check if this contact matches the name from the message
-                                    # Try exact match first
-                                    if contact_name_clean == name_clean:
-                                        # Verify the hex_id looks valid
-                                        if contact_hex_id and re.fullmatch(r'^[a-fA-F0-9]{8,}$', contact_hex_id):
-                                            hex_node_id = contact_hex_id.lower()
-                                            print(f"[DEBUG] ✓✓✓ EXACT MATCH FOUND on line {line_num}: name='{contact_name}' -> hex_id='{hex_node_id}'")
-                                            break
-                                        else:
-                                            print(f"[DEBUG] Contact matched but hex_id '{contact_hex_id}' is invalid")
-                                    # Fallback: try if one starts with the other (handles trailing spaces/characters)
-                                    elif contact_name_clean.startswith(name_clean) or name_clean.startswith(contact_name_clean):
-                                        if contact_hex_id and re.fullmatch(r'^[a-fA-F0-9]{8,}$', contact_hex_id):
-                                            hex_node_id = contact_hex_id.lower()
-                                            print(f"[DEBUG] ✓✓✓ PARTIAL MATCH FOUND on line {line_num}: name='{contact_name}' -> hex_id='{hex_node_id}'")
-                                            break
-                                    else:
-                                        print(f"[DEBUG] No match on line {line_num}: '{contact_name_clean}' != '{name_clean}'")
+                            # Try partial match (name starts with or contains the extracted name)
+                            if not hex_node_id:
+                                for json_name, json_hex in name_to_pub.items():
+                                    if name_extracted.lower() in json_name.lower() or json_name.lower() in name_extracted.lower():
+                                        hex_node_id = json_hex
+                                        print(f"[DEBUG] Found hex node ID '{hex_node_id}' for name '{name_extracted}' via JSON contacts (partial match with '{json_name}')")
+                                        break
                     except Exception as e:
-                        print(f"[DEBUG] Error querying contacts list directly: {e}")
+                        print(f"[DEBUG] Error checking JSON contacts: {e}")
                         import traceback
                         traceback.print_exc()
                     
-                    # If direct parsing didn't work, try JSON contacts mapping
-                    if not hex_node_id:
-                        try:
-                            # Normalize the name for JSON lookup (but only for JSON, not for the direct parse above)
-                            name_normalized = _normalize_contact_name(name_raw)
-                            if name_normalized and name_normalized != name_raw:
-                                print(f"[DEBUG] Trying JSON lookup with normalized name: '{name_normalized}' (from '{name_raw}')")
-                            
-                            name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=False)
-                            # Try both raw and normalized names
-                            hex_node_id = name_to_pub.get(name_raw) or name_to_pub.get(name_normalized)
-                            if hex_node_id:
-                                print(f"[DEBUG] Found hex node ID '{hex_node_id}' via JSON contacts")
-                        except Exception as e:
-                            print(f"[DEBUG] Error checking JSON contacts: {e}")
-                    
-                    # If still not found, try the full lookup method as fallback
-                    if not hex_node_id:
-                        name_normalized = _normalize_contact_name(name_raw)
-                        hex_node_id = self._get_node_id_from_name(name_normalized)
-                        if hex_node_id:
-                            print(f"[DEBUG] Found hex node ID '{hex_node_id}' via full lookup method")
-                    
                     # Final verification and return
                     if hex_node_id and re.fullmatch(r'^[a-fA-F0-9]{8,}$', hex_node_id):
-                        print(f"[DEBUG] Successfully mapped name '{name_raw}' to hex node ID '{hex_node_id}'")
+                        print(f"[DEBUG] Successfully mapped name '{name_extracted}' to hex node ID '{hex_node_id}'")
                         # Store node ID in friends (use hex node ID, not name)
                         if hex_node_id not in self.friends:
                             self.friends.add(hex_node_id)
-                        print(f"[MESSAGE RECEIVED] From: '{name_raw}' (hex node ID: '{hex_node_id}'), Message: '{message}'")
+                        print(f"[MESSAGE RECEIVED] From: '{name_extracted}' (hex node ID: '{hex_node_id}'), Message: '{message}'")
                         # ALWAYS return the hex node ID, never the name
                         return (hex_node_id, message)
                     else:
                         # If we still can't find the hex node ID, we cannot reply
-                        print(f"[DEBUG] CRITICAL ERROR: Cannot find hex node ID for name '{name_raw}' - message cannot be replied to")
+                        print(f"[DEBUG] CRITICAL ERROR: Cannot find hex node ID for name '{name_extracted}' - message cannot be replied to")
                         try:
                             name_to_pub = self._get_contacts_name_to_pubkey_map()
                             available = list(name_to_pub.keys()) if name_to_pub else []
                             print(f"[DEBUG] Available contacts: {available}")
                         except:
                             print(f"[DEBUG] Available contacts: (could not query)")
-                        print(f"[MESSAGE RECEIVED] From: '{name_raw}' (NO HEX NODE ID FOUND), Message: '{message}'")
+                        print(f"[MESSAGE RECEIVED] From: '{name_extracted}' (NO HEX NODE ID FOUND), Message: '{message}'")
                         # Return None for node_id to indicate we can't reply
                         return (None, message)
                 else:
@@ -584,12 +634,12 @@ class MeshHandler:
                 print(f"[DEBUG] Node '{node_id}' not in friends list, adding as contact...")
                 self._ensure_contact(node_id)
             
-            # Send via MeshCore CLI using msg command
+            # Send via MeshCore CLI using msg command with JSON output
             # Format: msg <node_id> <message>
             # CRITICAL: MUST use hex node ID, NEVER use name
             # node_id has already been verified as a valid hex string above
             print(f"[DEBUG] Sending to hex node ID: '{node_id}' (verified as hex string)")
-            cmd = self._build_meshcli_cmd("msg", node_id, message)
+            cmd = self._build_meshcli_cmd("msg", node_id, message, json_output=True)
             print(f"[DEBUG] Sending command: {' '.join(cmd)}")
             result = subprocess.run(
                 cmd,
@@ -607,9 +657,37 @@ class MeshHandler:
             if stderr_text:
                 print(f"[DEBUG] msg stderr: {stderr_text}")
             
-            # Check if stdout indicates failure (like "Unknown destination")
-            if result.returncode == 0 and ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
-                print(f"[ERROR] Destination '{node_id}' not recognized by meshcli")
+            # Parse JSON response
+            json_response = self._parse_json_response(stdout_text)
+            send_success = False
+            error_message = None
+            
+            if json_response:
+                # Check for error in JSON response
+                if isinstance(json_response, dict):
+                    error = json_response.get("error")
+                    error_code = json_response.get("error_code")
+                    if error or error_code:
+                        error_message = error or f"Error code: {error_code}"
+                        print(f"[ERROR] JSON error response: {error_message}")
+                    elif json_response.get("ok") or "ok" in str(json_response).lower():
+                        send_success = True
+                        print(f"[DEBUG] Message sent successfully (JSON confirmation)")
+                elif isinstance(json_response, list):
+                    # Array response like [{"type":0,"expected_ack":"..."},{"code":"..."}]
+                    # This typically indicates success
+                    send_success = True
+                    print(f"[DEBUG] Message sent successfully (JSON array response)")
+            else:
+                # Fallback to text-based error detection if JSON parsing failed
+                if result.returncode == 0 and ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                    error_message = "Unknown destination"
+                elif result.returncode == 0 and not ("error" in stdout_text.lower() or "unknown" in stdout_text.lower()):
+                    send_success = True
+            
+            # If failed, try to get node ID from contacts and retry
+            if not send_success and error_message:
+                print(f"[ERROR] Destination '{node_id}' not recognized by meshcli: {error_message}")
                 print(f"[DEBUG] Attempting to get node ID from contacts list...")
                 
                 # Try to get the actual node ID from the contacts list
@@ -619,7 +697,7 @@ class MeshHandler:
                     # Retry with the actual node ID (try both with and without ! prefix)
                     for try_id in [node_id_actual, f"!{node_id_actual}"]:
                         print(f"[DEBUG] Trying to send with node ID: '{try_id}'")
-                        cmd = self._build_meshcli_cmd("msg", try_id, message)
+                        cmd = self._build_meshcli_cmd("msg", try_id, message, json_output=True)
                         result = subprocess.run(
                             cmd,
                             capture_output=True,
@@ -634,8 +712,22 @@ class MeshHandler:
                         if stderr_text:
                             print(f"[DEBUG] Retry msg stderr: {stderr_text}")
                         
-                        # If this worked, break out of the loop
-                        if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                        # Check JSON response for success
+                        json_response = self._parse_json_response(stdout_text)
+                        if json_response:
+                            if isinstance(json_response, dict):
+                                if json_response.get("error") or json_response.get("error_code"):
+                                    continue  # Still an error, try next
+                                else:
+                                    send_success = True
+                                    print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
+                                    break
+                            elif isinstance(json_response, list):
+                                send_success = True
+                                print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
+                                break
+                        elif result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+                            send_success = True
                             print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
                             break
                 else:
@@ -643,6 +735,7 @@ class MeshHandler:
                     print(f"[DEBUG] Attempting to add contact and retry...")
                     if self._ensure_contact(node_id):
                         # Retry sending
+                        cmd = self._build_meshcli_cmd("msg", node_id, message, json_output=True)
                         result = subprocess.run(
                             cmd,
                             capture_output=True,
@@ -656,12 +749,21 @@ class MeshHandler:
                             print(f"[DEBUG] Retry msg stdout: {stdout_text}")
                         if stderr_text:
                             print(f"[DEBUG] Retry msg stderr: {stderr_text}")
+                        
+                        # Check JSON response
+                        json_response = self._parse_json_response(stdout_text)
+                        if json_response:
+                            if isinstance(json_response, dict):
+                                if not (json_response.get("error") or json_response.get("error_code")):
+                                    send_success = True
+                            elif isinstance(json_response, list):
+                                send_success = True
             
-            if result.returncode == 0 and not ("unknown" in stdout_text.lower() or "not found" in stdout_text.lower()):
+            if send_success:
                 self.last_send_time = now
                 print(f"[MESSAGE SENT] To: '{node_id}', Message: {message[:100]}...")
             else:
-                print(f"[ERROR] Failed to send message to '{node_id}': {stdout_text or stderr_text}")
+                print(f"[ERROR] Failed to send message to '{node_id}': {error_message or stdout_text or stderr_text}")
                 # Put message back in queue to retry
                 self.message_queue.put((node_id, message))
                 
@@ -778,7 +880,11 @@ class MeshHandler:
                 print("="*60)
                 node_card = self.get_node_card()
                 if node_card:
-                    print(node_card)
+                    if isinstance(node_card, dict):
+                        import json
+                        print(json.dumps(node_card, indent=2))
+                    else:
+                        print(node_card)
                 else:
                     print("Could not retrieve node card")
                 
@@ -787,7 +893,11 @@ class MeshHandler:
                 print("="*60)
                 node_infos = self.get_node_infos()
                 if node_infos:
-                    print(node_infos)
+                    if isinstance(node_infos, dict):
+                        import json
+                        print(json.dumps(node_infos, indent=2))
+                    else:
+                        print(node_infos)
                 else:
                     print("Could not retrieve node infos")
                 print("="*60 + "\n")
@@ -807,20 +917,49 @@ class MeshHandler:
     
     def get_radio_version(self) -> Optional[str]:
         """
-        Get radio firmware version information.
+        Get radio firmware version information using JSON output.
+        
+        Expected JSON format: {"version": "1.3.2"} or similar
         
         Returns:
             Version string or None if failed
         """
         try:
-            # Try various MeshCore CLI commands to get version
-            # Correct pattern: meshcli -v (prints version)
+            # Try various MeshCore CLI commands to get version with JSON
             commands = [
+                self._build_meshcli_cmd("-v", json_output=True),
+                self._build_meshcli_cmd("info", json_output=True),
+            ]
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        output = result.stdout.strip()
+                        # Try JSON parsing first
+                        json_response = self._parse_json_response(output)
+                        if json_response and isinstance(json_response, dict):
+                            version = json_response.get("version") or json_response.get("ver")
+                            if version:
+                                return str(version)
+                        # Fallback to raw output if JSON parsing failed
+                        return output
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+            
+            # Fallback to non-JSON commands
+            commands_text = [
                 self._build_meshcli_cmd("-v"),
                 self._build_meshcli_cmd("info"),
             ]
             
-            for cmd in commands:
+            for cmd in commands_text:
                 try:
                     result = subprocess.run(
                         cmd,
@@ -840,18 +979,20 @@ class MeshHandler:
             print(f"Error getting radio version: {e}")
             return None
     
-    def get_radio_link_info(self) -> Optional[str]:
+    def get_radio_link_info(self) -> Optional[Dict]:
         """
-        Get radio link information (frequency, bandwidth, etc.).
+        Get radio link information (frequency, bandwidth, etc.) using JSON output.
         Uses infos command which returns all node information including radio settings.
         
+        Expected JSON format: {"radio_freq": 910.525, "radio_bw": 62.5, "radio_sf": 7, "radio_cr": 5, "tx_power": 22, ...}
+        
         Returns:
-            Link info string (JSON or text) or None if failed
+            Parsed JSON dict with radio settings, or None if failed
         """
         try:
-            # Try without JSON first (faster, more reliable)
+            # Prioritize JSON output for structured data
             result = subprocess.run(
-                self._build_meshcli_cmd("infos"),
+                self._build_meshcli_cmd("infos", json_output=True),
                 capture_output=True,
                 text=True,
                 timeout=5.0  # Increased timeout
@@ -859,12 +1000,16 @@ class MeshHandler:
             
             if result.returncode == 0 and result.stdout.strip():
                 output = result.stdout.strip()
+                json_response = self._parse_json_response(output)
+                if json_response and isinstance(json_response, dict):
+                    return json_response
+                # If JSON parsing failed, return raw output for backward compatibility
                 return output
             
-            # Fallback to JSON output if non-JSON didn't work
+            # Fallback to non-JSON output if JSON didn't work
             try:
                 result = subprocess.run(
-                    self._build_meshcli_cmd("infos", json_output=True),
+                    self._build_meshcli_cmd("infos"),
                     capture_output=True,
                     text=True,
                     timeout=5.0  # Increased timeout
@@ -872,12 +1017,16 @@ class MeshHandler:
                 
                 if result.returncode == 0 and result.stdout.strip():
                     output = result.stdout.strip()
+                    # Try to parse as JSON even if -j wasn't used
+                    json_response = self._parse_json_response(output)
+                    if json_response and isinstance(json_response, dict):
+                        return json_response
                     return output
             except subprocess.TimeoutExpired:
-                # JSON output timed out, that's okay - we'll use non-JSON
+                # Timeout is okay
                 pass
             except Exception:
-                # JSON output failed, that's okay - we'll use non-JSON
+                # Error is okay, we'll return None
                 pass
             
             return None
@@ -955,9 +1104,9 @@ class MeshHandler:
             combined_radio_command = f"{freq_mhz},{bw_khz},{preset['spreading_factor']},{preset['coding_rate']}"
             print(f"  [DEBUG] Trying combined radio command format: {combined_radio_command}")
             combined_commands = [
-                ("set radio", self._build_meshcli_cmd("set", "radio", combined_radio_command)),
-                ("set-radio", self._build_meshcli_cmd("set-radio", combined_radio_command)),
-                ("radio", self._build_meshcli_cmd("radio", combined_radio_command)),
+                ("set radio", self._build_meshcli_cmd("set", "radio", combined_radio_command, json_output=True)),
+                ("set-radio", self._build_meshcli_cmd("set-radio", combined_radio_command, json_output=True)),
+                ("radio", self._build_meshcli_cmd("radio", combined_radio_command, json_output=True)),
             ]
             
             combined_success = False
@@ -978,19 +1127,32 @@ class MeshHandler:
                     if stderr_text:
                         print(f"  [DEBUG] stderr: {stderr_text[:200]}")  # First 200 chars
                     
-                    # Check for error events
-                    output = stdout_text + stderr_text
-                    if "EventType.ERROR" in output or "command_error" in output:
-                        print(f"  [DEBUG] Error event detected in output, trying next command...")
-                        continue
+                    # Parse JSON response for error detection
+                    json_response = self._parse_json_response(stdout_text)
+                    has_error = False
+                    
+                    if json_response and isinstance(json_response, dict):
+                        # Check for error in JSON response
+                        if json_response.get("error") or json_response.get("error_code"):
+                            has_error = True
+                            print(f"  [DEBUG] JSON error detected, trying next command...")
+                            continue
+                    
+                    # Fallback to text-based error detection if JSON parsing failed
+                    if not json_response:
+                        output = stdout_text + stderr_text
+                        if "EventType.ERROR" in output or "command_error" in output:
+                            print(f"  [DEBUG] Error event detected in output, trying next command...")
+                            continue
+                    
                     if result.returncode == 0:
-                        if not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
+                        if not has_error and not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
                             print(f"  ✓ Applied radio settings using '{cmd_name}' command: {combined_radio_command}")
                             combined_success = True
                             time.sleep(1.5)  # Wait for settings to apply
                             break
                         else:
-                            print(f"  [DEBUG] Command returned 0 but stderr contains error, trying next...")
+                            print(f"  [DEBUG] Command returned 0 but contains error, trying next...")
                     else:
                         print(f"  [DEBUG] Command failed with exit code {result.returncode}")
                 except Exception as e:
@@ -1003,9 +1165,18 @@ class MeshHandler:
                 time.sleep(1.0)
                 current_info = self.get_radio_link_info()
                 if current_info:
-                    import json
-                    try:
-                        config = json.loads(current_info)
+                    # Handle both dict (JSON) and string (fallback) return types
+                    if isinstance(current_info, dict):
+                        config = current_info
+                    else:
+                        # Fallback: try to parse as JSON string
+                        import json
+                        try:
+                            config = json.loads(current_info) if isinstance(current_info, str) else current_info
+                        except:
+                            config = None
+                    
+                    if config and isinstance(config, dict):
                         print(f"  [DEBUG] Current config: freq={config.get('radio_freq')}, bw={config.get('radio_bw')}, sf={config.get('radio_sf')}")
                         freq_ok = abs(config.get('radio_freq', 0) - freq_mhz) < 0.1
                         bw_ok = abs(config.get('radio_bw', 0) - bw_khz) < 1.0
@@ -1016,19 +1187,19 @@ class MeshHandler:
                             return True
                         else:
                             print("  [DEBUG] Settings not verified correctly, continuing with individual settings...")
-                    except Exception as e:
-                        print(f"  [DEBUG] Error parsing config for verification: {e}")
+                    else:
+                        print(f"  [DEBUG] Error parsing config for verification")
                 else:
                     print("  [DEBUG] Could not get radio info for verification")
             
             # Try preset/region commands if combined command didn't work
             preset_commands = [
-                ("preset", self._build_meshcli_cmd("preset", "usa")),
-                ("preset", self._build_meshcli_cmd("preset", "usa-canada")),
-                ("preset", self._build_meshcli_cmd("preset", "US")),
-                ("region", self._build_meshcli_cmd("region", "usa")),
-                ("region", self._build_meshcli_cmd("region", "US")),
-                ("set-preset", self._build_meshcli_cmd("set-preset", "usa")),
+                ("preset", self._build_meshcli_cmd("preset", "usa", json_output=True)),
+                ("preset", self._build_meshcli_cmd("preset", "usa-canada", json_output=True)),
+                ("preset", self._build_meshcli_cmd("preset", "US", json_output=True)),
+                ("region", self._build_meshcli_cmd("region", "usa", json_output=True)),
+                ("region", self._build_meshcli_cmd("region", "US", json_output=True)),
+                ("set-preset", self._build_meshcli_cmd("set-preset", "usa", json_output=True)),
             ]
             
             if not combined_success:
@@ -1050,13 +1221,27 @@ class MeshHandler:
                         print(f"  [DEBUG] Preset stdout: {stdout_text[:150]}")
                     if stderr_text:
                         print(f"  [DEBUG] Preset stderr: {stderr_text[:150]}")
-                    if result.returncode == 0:
-                        # Check for error events
+                    
+                    # Parse JSON response for error detection
+                    json_response = self._parse_json_response(stdout_text)
+                    has_error = False
+                    
+                    if json_response and isinstance(json_response, dict):
+                        # Check for error in JSON response
+                        if json_response.get("error") or json_response.get("error_code"):
+                            has_error = True
+                            print(f"  [DEBUG] JSON error in preset command, trying next...")
+                            continue
+                    
+                    # Fallback to text-based error detection if JSON parsing failed
+                    if not json_response:
                         output = stdout_text + stderr_text
                         if "EventType.ERROR" in output or "command_error" in output:
                             print(f"  [DEBUG] Error event in preset command, trying next...")
                             continue
-                        if not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
+                    
+                    if result.returncode == 0:
+                        if not has_error and not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
                             print(f"  ✓ Applied preset using '{preset_name}' command")
                             preset_success = True
                             time.sleep(1.0)  # Wait for preset to apply
@@ -1070,17 +1255,23 @@ class MeshHandler:
                 time.sleep(1.0)
                 current_info = self.get_radio_link_info()
                 if current_info:
-                    import json
-                    try:
-                        config = json.loads(current_info)
+                    # Handle both dict (JSON) and string (fallback) return types
+                    if isinstance(current_info, dict):
+                        config = current_info
+                    else:
+                        import json
+                        try:
+                            config = json.loads(current_info) if isinstance(current_info, str) else current_info
+                        except:
+                            config = None
+                    
+                    if config and isinstance(config, dict):
                         freq_ok = abs(config.get('radio_freq', 0) - freq_mhz) < 0.1
                         bw_ok = abs(config.get('radio_bw', 0) - bw_khz) < 1.0
                         sf_ok = config.get('radio_sf', 0) == preset['spreading_factor']
                         if freq_ok and bw_ok and sf_ok:
                             print("  Preset applied successfully!")
                             return True
-                    except:
-                        pass
             
             # If preset didn't work or didn't apply correctly, try individual settings
             # Track if we're getting error_code 6 (command not supported)
@@ -1097,12 +1288,12 @@ class MeshHandler:
                     if success:
                         break
                     
-                    # Try multiple command patterns
+                    # Try multiple command patterns with JSON output
                     commands_to_try = [
-                        ("set", self._build_meshcli_cmd("set", param_name, param_value)),
-                        ("config", self._build_meshcli_cmd("config", param_name, param_value)),
-                        ("set-param", self._build_meshcli_cmd("set-" + param_name, param_value)),
-                        ("direct", self._build_meshcli_cmd(param_name, param_value)),
+                        ("set", self._build_meshcli_cmd("set", param_name, param_value, json_output=True)),
+                        ("config", self._build_meshcli_cmd("config", param_name, param_value, json_output=True)),
+                        ("set-param", self._build_meshcli_cmd("set-" + param_name, param_value, json_output=True)),
+                        ("direct", self._build_meshcli_cmd(param_name, param_value, json_output=True)),
                     ]
                     
                     for cmd_name, cmd in commands_to_try:
@@ -1124,38 +1315,60 @@ class MeshHandler:
                             if stderr_text:
                                 print(f"    [DEBUG] stderr: {stderr_text[:150]}")
                             
-                            # Check for error events in output (meshcli may output error events)
-                            # Error format: "Error : Event(type=<EventType.ERROR: 'command_error'>, payload={'error_code': 6}, ...)"
-                            if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
-                                print(f"    [DEBUG] Error event detected!")
-                                # Extract error code if present
-                                error_match = re.search(r"error_code['\"]?\s*:\s*(\d+)", stdout_text + stderr_text)
-                                if error_match:
-                                    error_code = error_match.group(1)
-                                    last_error = f"Command rejected by radio (error_code: {error_code})"
-                                    print(f"    [DEBUG] Error code: {error_code}")
+                            # Parse JSON response for error detection
+                            json_response = self._parse_json_response(stdout_text)
+                            has_error = False
+                            error_code = None
+                            
+                            if json_response and isinstance(json_response, dict):
+                                # Check for error in JSON response
+                                error = json_response.get("error")
+                                error_code = json_response.get("error_code")
+                                if error or error_code:
+                                    has_error = True
+                                    error_code_str = str(error_code) if error_code else "unknown"
+                                    last_error = f"Command rejected by radio (error: {error}, error_code: {error_code_str})"
+                                    print(f"    [DEBUG] JSON error detected: {error}, code: {error_code}")
                                     # If error_code 6, commands are not supported
-                                    if error_code == "6":
+                                    if error_code == 6:
                                         commands_not_supported = True
                                         print(f"    [DEBUG] error_code 6 detected - commands not supported")
-                                else:
-                                    last_error = "Command rejected by radio (error event)"
-                                last_cmd_name = cmd_name
-                                last_value_used = f"{param_value} {value_unit}".strip()
-                                continue
+                                    last_cmd_name = cmd_name
+                                    last_value_used = f"{param_value} {value_unit}".strip()
+                                    continue
+                            else:
+                                # Fallback to text-based error detection if JSON parsing failed
+                                # Check for error events in output (meshcli may output error events)
+                                # Error format: "Error : Event(type=<EventType.ERROR: 'command_error'>, payload={'error_code': 6}, ...)"
+                                if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                                    print(f"    [DEBUG] Error event detected in text output!")
+                                    # Extract error code if present
+                                    error_match = re.search(r"error_code['\"]?\s*:\s*(\d+)", stdout_text + stderr_text)
+                                    if error_match:
+                                        error_code = error_match.group(1)
+                                        last_error = f"Command rejected by radio (error_code: {error_code})"
+                                        print(f"    [DEBUG] Error code: {error_code}")
+                                        # If error_code 6, commands are not supported
+                                        if error_code == "6":
+                                            commands_not_supported = True
+                                            print(f"    [DEBUG] error_code 6 detected - commands not supported")
+                                    else:
+                                        last_error = "Command rejected by radio (error event)"
+                                    last_cmd_name = cmd_name
+                                    last_value_used = f"{param_value} {value_unit}".strip()
+                                    continue
                             
                             # Check if command succeeded
                             if result.returncode == 0:
-                                # Check for error messages in stderr
+                                # Check for error messages in stderr (fallback)
                                 if result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower() or "command_error" in result.stderr.lower()):
                                     last_error = result.stderr.strip()
                                     last_cmd_name = cmd_name
                                     last_value_used = f"{param_value} {value_unit}".strip()
                                     continue
                                 
-                                # Check if stdout indicates success or failure
-                                # Some CLIs return success but indicate the command wasn't recognized
-                                if stdout_text and ("unknown" in stdout_text.lower() or "invalid" in stdout_text.lower() or "not found" in stdout_text.lower() or "command_error" in stdout_text.lower()):
+                                # Check if stdout indicates success or failure (fallback for non-JSON)
+                                if not json_response and stdout_text and ("unknown" in stdout_text.lower() or "invalid" in stdout_text.lower() or "not found" in stdout_text.lower() or "command_error" in stdout_text.lower()):
                                     last_error = stdout_text
                                     last_cmd_name = cmd_name
                                     last_value_used = f"{param_value} {value_unit}".strip()
@@ -1171,7 +1384,7 @@ class MeshHandler:
                                 # Save immediately after setting (some radios require this)
                                 try:
                                     save_result = subprocess.run(
-                                        self._build_meshcli_cmd("save"),
+                                        self._build_meshcli_cmd("save", json_output=True),
                                         capture_output=True,
                                         text=True,
                                         timeout=2.0
@@ -1219,11 +1432,11 @@ class MeshHandler:
                 # Try to save/commit configuration (some radios require this)
                 # Also try writing config after each setting
                 save_commands = [
-                    self._build_meshcli_cmd("save"),
-                    self._build_meshcli_cmd("commit"),
-                    self._build_meshcli_cmd("write"),
-                    self._build_meshcli_cmd("save-config"),
-                    self._build_meshcli_cmd("write-config"),
+                    self._build_meshcli_cmd("save", json_output=True),
+                    self._build_meshcli_cmd("commit", json_output=True),
+                    self._build_meshcli_cmd("write", json_output=True),
+                    self._build_meshcli_cmd("save-config", json_output=True),
+                    self._build_meshcli_cmd("write-config", json_output=True),
                 ]
                 
                 for cmd in save_commands:
@@ -1235,7 +1448,18 @@ class MeshHandler:
                             timeout=3.0
                         )
                         if result.returncode == 0:
-                            if not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
+                            stdout_text = result.stdout.strip() if result.stdout else ""
+                            # Check JSON response for success
+                            json_response = self._parse_json_response(stdout_text)
+                            if json_response:
+                                if isinstance(json_response, dict):
+                                    if not (json_response.get("error") or json_response.get("error_code")):
+                                        print("  Configuration saved")
+                                        break
+                                else:
+                                    print("  Configuration saved")
+                                    break
+                            elif not (result.stderr and ("error" in result.stderr.lower() or "unknown" in result.stderr.lower())):
                                 print("  Configuration saved")
                                 break
                     except:
@@ -1249,10 +1473,18 @@ class MeshHandler:
             current_info = self.get_radio_link_info()
             
             if current_info:
-                import json
-                try:
-                    # Try to parse as JSON first
-                    config = json.loads(current_info)
+                # Handle both dict (JSON) and string (fallback) return types
+                if isinstance(current_info, dict):
+                    config = current_info
+                else:
+                    import json
+                    try:
+                        # Try to parse as JSON string
+                        config = json.loads(current_info) if isinstance(current_info, str) else current_info
+                    except:
+                        config = None
+                
+                if config and isinstance(config, dict):
                     verified = []
                     issues = []
                     
@@ -1321,31 +1553,32 @@ class MeshHandler:
                     
                     print("  All settings verified successfully!")
                     return True
-                except json.JSONDecodeError:
-                    # If not JSON, try to extract values from text output
-                    print("  Warning: Config not in JSON format, attempting text parsing...")
-                    # Try to extract key values from text
-                    freq_match = re.search(r'"radio_freq":\s*([\d.]+)', current_info)
-                    bw_match = re.search(r'"radio_bw":\s*([\d.]+)', current_info)
-                    sf_match = re.search(r'"radio_sf":\s*(\d+)', current_info)
-                    cr_match = re.search(r'"radio_cr":\s*(\d+)', current_info)
-                    power_match = re.search(r'"tx_power":\s*(\d+)', current_info)
-                    
-                    config = {}
-                    if freq_match:
-                        config['radio_freq'] = float(freq_match.group(1))
-                    if bw_match:
-                        config['radio_bw'] = float(bw_match.group(1))
-                    if sf_match:
-                        config['radio_sf'] = int(sf_match.group(1))
-                    if cr_match:
-                        config['radio_cr'] = int(cr_match.group(1))
-                    if power_match:
-                        config['tx_power'] = int(power_match.group(1))
-                    
-                    if not config:
-                        print("  Could not extract config values from output")
-                        return len(applied_settings) > 0
+                else:
+                    # If not dict, try to extract values from text output
+                    if isinstance(current_info, str):
+                        print("  Warning: Config not in JSON format, attempting text parsing...")
+                        # Try to extract key values from text
+                        freq_match = re.search(r'"radio_freq":\s*([\d.]+)', current_info)
+                        bw_match = re.search(r'"radio_bw":\s*([\d.]+)', current_info)
+                        sf_match = re.search(r'"radio_sf":\s*(\d+)', current_info)
+                        cr_match = re.search(r'"radio_cr":\s*(\d+)', current_info)
+                        power_match = re.search(r'"tx_power":\s*(\d+)', current_info)
+                        
+                        config = {}
+                        if freq_match:
+                            config['radio_freq'] = float(freq_match.group(1))
+                        if bw_match:
+                            config['radio_bw'] = float(bw_match.group(1))
+                        if sf_match:
+                            config['radio_sf'] = int(sf_match.group(1))
+                        if cr_match:
+                            config['radio_cr'] = int(cr_match.group(1))
+                        if power_match:
+                            config['tx_power'] = int(power_match.group(1))
+                        
+                        if not config:
+                            print("  Could not extract config values from output")
+                            return len(applied_settings) > 0
             
             # If we applied at least some settings, consider it partially successful
             if applied_settings:
@@ -1372,15 +1605,15 @@ class MeshHandler:
             True if successful, False otherwise
         """
         try:
-            # Try various MeshCore CLI commands to set name
+            # Try various MeshCore CLI commands to set name with JSON output
             # Common patterns: set-name, name, setname, node-name
             # Also try: set name <name> (similar to set radio format)
             name_commands = [
-                ("set name", self._build_meshcli_cmd("set", "name", name)),
-                ("set-name", self._build_meshcli_cmd("set-name", name)),
-                ("name", self._build_meshcli_cmd("name", name)),
-                ("setname", self._build_meshcli_cmd("setname", name)),
-                ("node-name", self._build_meshcli_cmd("node-name", name)),
+                ("set name", self._build_meshcli_cmd("set", "name", name, json_output=True)),
+                ("set-name", self._build_meshcli_cmd("set-name", name, json_output=True)),
+                ("name", self._build_meshcli_cmd("name", name, json_output=True)),
+                ("setname", self._build_meshcli_cmd("setname", name, json_output=True)),
+                ("node-name", self._build_meshcli_cmd("node-name", name, json_output=True)),
             ]
             
             for cmd_name, cmd in name_commands:
@@ -1395,15 +1628,26 @@ class MeshHandler:
                     stdout_text = result.stdout.strip() if result.stdout else ""
                     stderr_text = result.stderr.strip() if result.stderr else ""
                     
-                    # Check for error events (like error_code 6)
-                    if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
-                        continue
+                    # Parse JSON response for error detection
+                    json_response = self._parse_json_response(stdout_text)
+                    has_error = False
+                    
+                    if json_response and isinstance(json_response, dict):
+                        # Check for error in JSON response
+                        if json_response.get("error") or json_response.get("error_code"):
+                            has_error = True
+                            continue
+                    
+                    # Fallback to text-based error detection if JSON parsing failed
+                    if not json_response:
+                        if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                            continue
                     
                     if result.returncode == 0:
-                        # Check for error messages
-                        if stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower()):
+                        # Check for error messages (fallback)
+                        if has_error or (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower())):
                             continue
-                        if stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
+                        if not json_response and stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
                             continue
                         
                         # Allow time for name to be set
@@ -1412,9 +1656,17 @@ class MeshHandler:
                         # Verify the name was actually set
                         current_info = self.get_radio_link_info()
                         if current_info:
-                            import json
-                            try:
-                                config = json.loads(current_info)
+                            # Handle both dict (JSON) and string (fallback) return types
+                            if isinstance(current_info, dict):
+                                config = current_info
+                            else:
+                                import json
+                                try:
+                                    config = json.loads(current_info) if isinstance(current_info, str) else current_info
+                                except:
+                                    config = None
+                            
+                            if config and isinstance(config, dict):
                                 current_name = config.get('name', '')
                                 if current_name == name:
                                     print(f"  ✓ Radio name set to '{name}' using '{cmd_name}' command")
@@ -1422,7 +1674,7 @@ class MeshHandler:
                                 else:
                                     # Name command was accepted but didn't change the name
                                     continue
-                            except:
+                            else:
                                 # If we can't verify, assume it worked
                                 print(f"  ✓ Radio name command accepted using '{cmd_name}' command (could not verify)")
                                 return True
@@ -1438,8 +1690,8 @@ class MeshHandler:
             # If none of the commands worked, try alternative approach
             # Some systems might require a different format
             alt_commands = [
-                ("config name", self._build_meshcli_cmd("config", "name", name)),
-                ("set-config name", self._build_meshcli_cmd("set-config", "name", name)),
+                ("config name", self._build_meshcli_cmd("config", "name", name, json_output=True)),
+                ("set-config name", self._build_meshcli_cmd("set-config", "name", name, json_output=True)),
             ]
             
             for cmd_name, cmd in alt_commands:
@@ -1454,14 +1706,25 @@ class MeshHandler:
                     stdout_text = result.stdout.strip() if result.stdout else ""
                     stderr_text = result.stderr.strip() if result.stderr else ""
                     
-                    # Check for error events
-                    if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
-                        continue
+                    # Parse JSON response for error detection
+                    json_response = self._parse_json_response(stdout_text)
+                    has_error = False
+                    
+                    if json_response and isinstance(json_response, dict):
+                        # Check for error in JSON response
+                        if json_response.get("error") or json_response.get("error_code"):
+                            has_error = True
+                            continue
+                    
+                    # Fallback to text-based error detection if JSON parsing failed
+                    if not json_response:
+                        if "EventType.ERROR" in stdout_text or "EventType.ERROR" in stderr_text:
+                            continue
                     
                     if result.returncode == 0:
-                        if stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower()):
+                        if has_error or (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower() or "command_error" in stderr_text.lower())):
                             continue
-                        if stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
+                        if not json_response and stdout_text and ("error" in stdout_text.lower() or "unknown" in stdout_text.lower() or "command_error" in stdout_text.lower()):
                             continue
                         
                         time.sleep(0.5)
@@ -1469,15 +1732,21 @@ class MeshHandler:
                         # Verify the name was actually set
                         current_info = self.get_radio_link_info()
                         if current_info:
-                            import json
-                            try:
-                                config = json.loads(current_info)
+                            # Handle both dict (JSON) and string (fallback) return types
+                            if isinstance(current_info, dict):
+                                config = current_info
+                            else:
+                                import json
+                                try:
+                                    config = json.loads(current_info) if isinstance(current_info, str) else current_info
+                                except:
+                                    config = None
+                            
+                            if config and isinstance(config, dict):
                                 current_name = config.get('name', '')
                                 if current_name == name:
                                     print(f"  ✓ Radio name set to '{name}' using '{cmd_name}' command")
                                     return True
-                            except:
-                                pass
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
                 except Exception:
@@ -1491,52 +1760,65 @@ class MeshHandler:
             print(f"Error setting radio name: {e}")
             return False
     
-    def get_node_card(self) -> Optional[str]:
+    def get_node_card(self) -> Optional[Dict]:
         """
-        Get the node card information (node URI/identity).
+        Get the node card information (node URI/identity) using JSON output.
         Uses card command which exports the node URI.
         
+        Expected JSON format: {"card": "meshcore://..."} or similar
+        
         Returns:
-            Node card string or None if failed
+            Parsed JSON dict with node card info, or None if failed
         """
         try:
-            # Use card command (correct MeshCore CLI command)
+            # Use card command with JSON output
             result = subprocess.run(
-                self._build_meshcli_cmd("card"),
+                self._build_meshcli_cmd("card", json_output=True),
                 capture_output=True,
                 text=True,
                 timeout=3.0
             )
             
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                output = result.stdout.strip()
+                json_response = self._parse_json_response(output)
+                if json_response and isinstance(json_response, dict):
+                    return json_response
+                # Fallback: return raw output if JSON parsing failed
+                return output
             
             return None
-            
             
         except Exception as e:
             print(f"Error getting node card: {e}")
             return None
     
-    def get_node_infos(self) -> Optional[str]:
+    def get_node_infos(self) -> Optional[Dict]:
         """
-        Get node infos (detailed node information).
+        Get node infos (detailed node information) using JSON output.
         Uses infos command which returns all node information.
         
+        Expected JSON format: {"radio_freq": 910.525, "radio_bw": 62.5, "name": "...", ...}
+        
         Returns:
-            Node infos string or None if failed
+            Parsed JSON dict with node information, or None if failed
         """
         try:
-            # Use infos command (correct MeshCore CLI command)
+            # Use infos command with JSON output
             result = subprocess.run(
-                self._build_meshcli_cmd("infos"),
+                self._build_meshcli_cmd("infos", json_output=True),
                 capture_output=True,
                 text=True,
                 timeout=3.0
             )
             
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                output = result.stdout.strip()
+                json_response = self._parse_json_response(output)
+                if json_response and isinstance(json_response, dict):
+                    return json_response
+                # Fallback: return raw output if JSON parsing failed
+                return output
             
             return None
             
@@ -1555,17 +1837,30 @@ class MeshHandler:
             zero_hop: If True, set scope for zero-hop flooding (default: True)
         """
         try:
-            # First try floodadv command (most efficient)
+            # First try floodadv command (most efficient) with JSON output
             try:
                 result = subprocess.run(
-                    self._build_meshcli_cmd("floodadv"),
+                    self._build_meshcli_cmd("floodadv", json_output=True),
                     capture_output=True,
                     text=True,
                     timeout=5.0
                 )
                 if result.returncode == 0:
-                    print(f"  Flood advert sent (using floodadv command)")
-                    return
+                    stdout_text = result.stdout.strip() if result.stdout else ""
+                    json_response = self._parse_json_response(stdout_text)
+                    # Check JSON response for success
+                    if json_response:
+                        if isinstance(json_response, dict):
+                            if not (json_response.get("error") or json_response.get("error_code")):
+                                print(f"  Flood advert sent (using floodadv command)")
+                                return
+                        else:
+                            print(f"  Flood advert sent (using floodadv command)")
+                            return
+                    else:
+                        # Fallback: assume success if return code is 0
+                        print(f"  Flood advert sent (using floodadv command)")
+                        return
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass
             
@@ -1576,7 +1871,7 @@ class MeshHandler:
                 # Scope might control flooding behavior
                 try:
                     subprocess.run(
-                        self._build_meshcli_cmd("scope", ""),  # Empty scope might mean local/zero-hop
+                        self._build_meshcli_cmd("scope", "", json_output=True),  # Empty scope might mean local/zero-hop
                         capture_output=True,
                         text=True,
                         timeout=2.0
@@ -1584,19 +1879,32 @@ class MeshHandler:
                 except:
                     pass  # Scope setting is optional
             
-            # Send multiple adverts
+            # Send multiple adverts with JSON output
             success_count = 0
             for i in range(count):
                 try:
                     result = subprocess.run(
-                        self._build_meshcli_cmd("advert"),
+                        self._build_meshcli_cmd("advert", json_output=True),
                         capture_output=True,
                         text=True,
                         timeout=3.0
                     )
                     if result.returncode == 0:
-                        success_count += 1
-                        print(f"  Advert {i+1}/{count} sent")
+                        stdout_text = result.stdout.strip() if result.stdout else ""
+                        json_response = self._parse_json_response(stdout_text)
+                        # Check JSON response for success
+                        if json_response:
+                            if isinstance(json_response, dict):
+                                if not (json_response.get("error") or json_response.get("error_code")):
+                                    success_count += 1
+                                    print(f"  Advert {i+1}/{count} sent")
+                            else:
+                                success_count += 1
+                                print(f"  Advert {i+1}/{count} sent")
+                        else:
+                            # Fallback: assume success if return code is 0
+                            success_count += 1
+                            print(f"  Advert {i+1}/{count} sent")
                     else:
                         if result.stderr:
                             print(f"  Warning: Advert {i+1}/{count} failed: {result.stderr.strip()}")
@@ -1631,11 +1939,11 @@ class MeshHandler:
             return False
         
         try:
-            # Try to add contact using various commands
+            # Try to add contact using various commands with JSON output
             add_commands = [
-                self._build_meshcli_cmd("add", node_id),
-                self._build_meshcli_cmd("contact", "add", node_id),
-                self._build_meshcli_cmd("friend", "add", node_id),
+                self._build_meshcli_cmd("add", node_id, json_output=True),
+                self._build_meshcli_cmd("contact", "add", node_id, json_output=True),
+                self._build_meshcli_cmd("friend", "add", node_id, json_output=True),
             ]
             
             for cmd in add_commands:
@@ -1650,7 +1958,23 @@ class MeshHandler:
                     stdout_text = result.stdout.strip() if result.stdout else ""
                     stderr_text = result.stderr.strip() if result.stderr else ""
                     print(f"[DEBUG] Add contact exit code: {result.returncode}, stdout: {stdout_text}, stderr: {stderr_text}")
-                    if result.returncode == 0:
+                    
+                    # Parse JSON response for success/failure
+                    json_response = self._parse_json_response(stdout_text)
+                    success = False
+                    
+                    if json_response:
+                        if isinstance(json_response, dict):
+                            if not (json_response.get("error") or json_response.get("error_code")):
+                                success = True
+                        else:
+                            success = True
+                    elif result.returncode == 0:
+                        # Fallback: assume success if return code is 0 and no error in stderr
+                        if not (stderr_text and ("error" in stderr_text.lower() or "unknown" in stderr_text.lower())):
+                            success = True
+                    
+                    if success:
                         if node_id not in self.friends:
                             self.friends.add(node_id)
                         print(f"[DEBUG] Contact '{node_id}' added successfully")
@@ -1670,276 +1994,117 @@ class MeshHandler:
     
     def _extract_node_id_from_contacts_list(self, name: str) -> Optional[str]:
         """
-        Extract node ID from contacts list by querying meshcli contacts command.
-        This is a direct lookup that parses the contacts list output.
+        Extract hex node ID from JSON contacts only.
+        This uses JSON contacts command which provides clean, structured data.
         
         Args:
             name: Node name to look up
             
         Returns:
-            Node ID if found, None otherwise
+            Hex node ID if found, None otherwise
         """
-        name = _normalize_contact_name(name)
         if not name:
             return None
         
-        print(f"[DEBUG] _extract_node_id_from_contacts_list: Looking up node ID for name '{name}'")
+        # Extract visible name pattern
+        name_match = re.search(r'([A-Za-z0-9][A-Za-z0-9_.-]*)', name)
+        name_extracted = name_match.group(1) if name_match else name.strip()
+        
+        print(f"[DEBUG] _extract_node_id_from_contacts_list: Looking up hex node ID for name '{name_extracted}'")
 
-        # Prefer JSON contacts: stable + includes public key directly.
-        name_to_pub = self._get_contacts_name_to_pubkey_map()
-        if name in name_to_pub:
-            node_id = name_to_pub[name]
-            print(f"[DEBUG] Found node ID '{node_id}' for name '{name}' via JSON contacts")
-            return node_id
-        else:
-            # Helpful runtime signal: if this prints, JSON contacts is being queried but did not match.
-            # This should be rare once normalization is correct.
+        # Use JSON contacts ONLY - clean and reliable
+        try:
+            name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=False)
+            
+            # Try exact match
+            if name_extracted in name_to_pub:
+                node_id = name_to_pub[name_extracted]
+                print(f"[DEBUG] Found hex node ID '{node_id}' for name '{name_extracted}' via JSON contacts (exact match)")
+                return node_id
+            
+            # Try case-insensitive match
+            for json_name, json_hex in name_to_pub.items():
+                if json_name.lower() == name_extracted.lower():
+                    print(f"[DEBUG] Found hex node ID '{json_hex}' for name '{name_extracted}' via JSON contacts (case-insensitive match)")
+                    return json_hex
+            
+            # Try partial match
+            for json_name, json_hex in name_to_pub.items():
+                if name_extracted.lower() in json_name.lower() or json_name.lower() in name_extracted.lower():
+                    print(f"[DEBUG] Found hex node ID '{json_hex}' for name '{name_extracted}' via JSON contacts (partial match with '{json_name}')")
+                    return json_hex
+            
             if name_to_pub:
                 sample = list(name_to_pub.items())[:3]
-                print(f"[DEBUG] JSON contacts lookup miss for '{name}'. Map size={len(name_to_pub)}. Sample={sample}")
-        
-        try:
-            # Query contacts list directly
-            result = subprocess.run(
-                self._build_meshcli_cmd("contacts"),
-                capture_output=True,
-                text=True,
-                timeout=5.0
-            )
-            
-            if result.returncode == 0 and result.stdout:
-                output = result.stdout
-                lines = output.splitlines()
-
-                # Find the line that starts with the name (normalize both sides).
-                name_key = _normalize_contact_name(name)
-                for raw_line in lines:
-                    line = _normalize_meshcli_text(raw_line)
-                    if not line or line.startswith(">") or "contacts in device" in line.lower():
-                        continue
-
-                    # Most MeshCore names do not contain spaces; compare first token.
-                    parts = [p for p in line.split(" ") if p]
-                    if not parts:
-                        continue
-
-                    first_token = _normalize_contact_name(parts[0])
-                    if first_token != name_key:
-                        continue
-
-                    print(f"[DEBUG] Found matching line, parts: {parts}")
-
-                    # Prefer the token after the type column (CLI/REP/etc.)
-                    node_id_candidate = None
-                    for i, part in enumerate(parts):
-                        if part.upper() in ["CLI", "REP", "CLIENT", "REPEATER"] and i + 1 < len(parts):
-                            candidate = _normalize_meshcli_text(parts[i + 1])
-                            if re.fullmatch(r"[a-fA-F0-9]{8,}", candidate):
-                                node_id_candidate = candidate.lower()
-                                break
-
-                    # Fallback: first hex token (8+ chars) on the line.
-                    if not node_id_candidate:
-                        m = re.search(r"\b([a-fA-F0-9]{8,})\b", line)
-                        if m:
-                            node_id_candidate = m.group(1).lower()
-
-                    if node_id_candidate:
-                        print(f"[DEBUG] Extracted node ID: '{node_id_candidate}'")
-                        try:
-                            import database
-                            database.store_contact(name_key, node_id_candidate)
-                        except Exception as e:
-                            print(f"[DEBUG] Error storing in database: {e}")
-                        return node_id_candidate
-            
-            return None
-            
+                print(f"[DEBUG] JSON contacts lookup miss for '{name_extracted}'. Map size={len(name_to_pub)}. Sample={sample}")
         except Exception as e:
-            print(f"[DEBUG] Error extracting node ID from contacts list: {e}")
-            return None
+            print(f"[DEBUG] Error extracting node ID from JSON contacts: {e}")
+        
+        return None
     
     def _get_node_id_from_name(self, name: str) -> Optional[str]:
         """
-        Try to get the actual node ID from a name.
-        First checks database, then queries meshcli contacts list if not found.
+        Get the actual hex node ID from a name using JSON contacts only.
         
         Args:
             name: Node name to look up
             
         Returns:
-            Node ID if found, None otherwise
+            Hex node ID if found, None otherwise
         """
-        name = _normalize_contact_name(name)
         if not name:
             print(f"[DEBUG] _get_node_id_from_name: Empty name provided")
             return None
 
-        # If it already looks like a node id, just return it.
+        # If it already looks like a hex node ID, just return it (cleaned)
         if re.fullmatch(r"!?[a-fA-F0-9]{8,}", name):
             return name.lstrip("!").lower()
 
-        # Prefer JSON contacts mapping: adv_name -> public_key.
+        # Extract visible name pattern (alphanumeric, dash, underscore, dot)
+        name_match = re.search(r'([A-Za-z0-9][A-Za-z0-9_.-]*)', name)
+        name_extracted = name_match.group(1) if name_match else name.strip()
+
+        # Use JSON contacts mapping ONLY - clean and reliable
         try:
-            name_to_pub = self._get_contacts_name_to_pubkey_map()
-            mapped = name_to_pub.get(name)
+            name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=False)
+            
+            # Try exact match first
+            mapped = name_to_pub.get(name_extracted)
             if mapped:
-                print(f"[DEBUG] Found node ID '{mapped}' for name '{name}' via JSON contacts")
+                print(f"[DEBUG] Found hex node ID '{mapped}' for name '{name_extracted}' via JSON contacts (exact match)")
                 return mapped
+            
+            # Try case-insensitive match
+            for json_name, json_hex in name_to_pub.items():
+                if json_name.lower() == name_extracted.lower():
+                    print(f"[DEBUG] Found hex node ID '{json_hex}' for name '{name_extracted}' via JSON contacts (case-insensitive match)")
+                    return json_hex
+            
+            # Try partial match
+            for json_name, json_hex in name_to_pub.items():
+                if name_extracted.lower() in json_name.lower() or json_name.lower() in name_extracted.lower():
+                    print(f"[DEBUG] Found hex node ID '{json_hex}' for name '{name_extracted}' via JSON contacts (partial match with '{json_name}')")
+                    return json_hex
+            
             if name_to_pub:
-                print(f"[DEBUG] JSON contacts mapping present but no match for '{name}' (keys are normalized).")
+                print(f"[DEBUG] JSON contacts mapping present but no match for '{name_extracted}'. Available keys: {list(name_to_pub.keys())}")
         except Exception as e:
             print(f"[DEBUG] Error checking JSON contacts mapping: {e}")
         
-        print(f"[DEBUG] _get_node_id_from_name: Looking up node ID for name '{name}'")
-        
-        # First, try to get from database
+        # Fallback: check database
         try:
             import database
-            node_id = database.get_node_id_by_name(name)
+            node_id = database.get_node_id_by_name(name_extracted)
             if node_id:
-                node_id_norm = _normalize_meshcli_text(node_id).lstrip("!").lower()
-                print(f"[DEBUG] Found node ID '{node_id_norm}' for name '{name}' in database")
-                return node_id_norm
+                node_id_clean = node_id.lstrip("!").lower().strip()
+                if re.fullmatch(r'^[a-f0-9]{8,}$', node_id_clean):
+                    print(f"[DEBUG] Found hex node ID '{node_id_clean}' for name '{name_extracted}' in database")
+                    return node_id_clean
         except Exception as e:
             print(f"[DEBUG] Error checking database: {e}")
         
-        # If not in database, query meshcli contacts list
-        try:
-            # Get contacts list
-            result = subprocess.run(
-                self._build_meshcli_cmd("contacts"),
-                capture_output=True,
-                text=True,
-                timeout=5.0
-            )
-            
-            if result.returncode == 0 and result.stdout:
-                output = result.stdout
-                preview = _normalize_meshcli_text(output)[:200]
-                print(f"[DEBUG] Contacts list: {preview}...")
-                
-                # Parse contacts list format:
-                # Format appears to be: "name <spaces> type <spaces> node_id <spaces> hop_count"
-                # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
-                lines = output.splitlines()
-                print(f"[DEBUG] Parsing {len(lines)} lines from contacts list")
-                
-                # First, try to find the line that contains the name
-                name_stripped = _normalize_meshcli_text(name)
-                matching_line = None
-                
-                for line_num, line in enumerate(lines):
-                    line_original = line  # Keep original for debugging
-                    line = _normalize_meshcli_text(line)
-                    print(f"[DEBUG] Line {line_num}: '{line[:80]}...'")
-                    if not line or line.startswith('>') or 'contacts in device' in line.lower():
-                        print(f"[DEBUG] Skipping line {line_num} (empty, starts with '>', or summary line)")
-                        continue
-                    
-                    # Get the first word from the line (the name)
-                    line_parts = [p for p in line.split(" ") if p]
-                    first_word = line_parts[0] if line_parts else ""
-                    
-                    print(f"[DEBUG] First word: '{first_word}', Looking for: '{name_stripped}'")
-                    
-                    # Match if the first word of the line equals the name (after stripping both)
-                    if _normalize_meshcli_text(first_word) == name_stripped:
-                        print(f"[DEBUG] ✓✓✓ MATCH FOUND on line {line_num}!")
-                        matching_line = line
-                        # Extract node ID from the line
-                        # Pattern: "name <spaces> type <spaces> node_id <spaces> hop_count"
-                        # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
-                        # Split by whitespace - filter out empty strings
-                        parts = [p.strip() for p in line.split(" ") if p.strip()]
-                        print(f"[DEBUG] Line parts: {parts}")
-                        
-                        # Look for the type (CLI, REP, etc.) and get the node ID after it
-                        node_id_found = None
-                        for i, part in enumerate(parts):
-                            # Node ID is usually after the type (CLI, REP, etc.)
-                            # and is a hex string
-                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                node_id_candidate = _normalize_meshcli_text(parts[i + 1].strip())
-                                print(f"[DEBUG] Checking candidate '{node_id_candidate}' after type '{part}'")
-                                # Check if it looks like a node ID (hex string, 8+ chars)
-                                if re.fullmatch(r'[a-fA-F0-9]{8,}', node_id_candidate):
-                                    node_id_found = node_id_candidate.lower()
-                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id_found}' after type '{part}'")
-                                    break
-                                else:
-                                    print(f"[DEBUG] Candidate '{node_id_candidate}' doesn't match hex pattern")
-                        
-                        # If we found a node ID, store it and return it
-                        if node_id_found:
-                            try:
-                                import database
-                                database.store_contact(name_stripped, node_id_found)
-                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id_found}' in database")
-                            except Exception as e:
-                                print(f"[DEBUG] Error storing contact in database: {e}")
-                            return node_id_found
-                        
-                        # Fallback: try to find any hex string in the line (8+ chars)
-                        # Use word boundary to avoid partial matches
-                        print(f"[DEBUG] Trying fallback regex to find hex string...")
-                        node_id_match = re.search(r'\b([a-fA-F0-9]{8,})\b', line)
-                        if node_id_match:
-                            node_id_found = node_id_match.group(1).lower()
-                            print(f"[DEBUG] ✓ Found node ID '{node_id_found}' using fallback regex")
-                            # Store in database for future lookups
-                            try:
-                                import database
-                                database.store_contact(name_stripped, node_id_found)
-                                print(f"[DEBUG] Stored contact mapping '{name_stripped}' -> '{node_id_found}' in database")
-                            except Exception as e:
-                                print(f"[DEBUG] Error storing contact in database: {e}")
-                            return node_id_found
-                        
-                        print(f"[DEBUG] ✗✗✗ ERROR: Could not extract node ID from line: {line}")
-                        print(f"[DEBUG] Parts were: {parts}")
-                        break
-                    
-                    # Try a more flexible match - check if name starts the line (after stripping)
-                    if line.startswith(name_stripped):
-                        print(f"[DEBUG] Line starts with name, trying extraction anyway...")
-                        parts = [p.strip() for p in line.split(" ") if p.strip()]
-                        print(f"[DEBUG] Line parts: {parts}")
-                        for i, part in enumerate(parts):
-                            if part.upper() in ['CLI', 'REP', 'CLIENT', 'REPEATER'] and i + 1 < len(parts):
-                                node_id_candidate = parts[i + 1].strip()
-                                if re.fullmatch(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                    node_id = node_id_candidate.lower()
-                                    print(f"[DEBUG] ✓✓✓ Found node ID '{node_id}' after type '{part}' (flexible match)")
-                                    try:
-                                        import database
-                                        database.store_contact(name_stripped, node_id)
-                                    except Exception as e:
-                                        print(f"[DEBUG] Error storing contact in database: {e}")
-                                    return node_id
-                
-                # If not found, try parsing as JSON
-                try:
-                    import json
-                    contacts = json.loads(output)
-                    if isinstance(contacts, list):
-                        for contact in contacts:
-                            if isinstance(contact, dict):
-                                contact_name = contact.get('name', '').strip()
-                                contact_id = contact.get('id', '') or contact.get('node_id', '')
-                                if contact_name == name and contact_id:
-                                    print(f"[DEBUG] Found node ID '{contact_id}' for name '{name}' in JSON")
-                                    return contact_id
-                except:
-                    pass
-            
-            return None
-            
-        except Exception as e:
-            print(f"[DEBUG] Error getting node ID from name: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        print(f"[DEBUG] Could not find hex node ID for name '{name_extracted}'")
+        return None
     
     def add_friend(self, node_id: str) -> bool:
         """
@@ -1982,12 +2147,12 @@ class MeshHandler:
         Also use contacts command to sync with MeshCore's contact list.
         """
         try:
-            # First, use node_discover to discover nodes
+            # First, use node_discover to discover nodes with JSON output
             # Format: node_discover <filter> where filter can be type (1=client, 2=repeater, etc.)
             # Empty filter discovers all nodes
             discover_commands = [
-                self._build_meshcli_cmd("node_discover"),  # Discover all nodes
-                self._build_meshcli_cmd("node_discover", "1"),  # Discover clients only
+                self._build_meshcli_cmd("node_discover", json_output=True),  # Discover all nodes
+                self._build_meshcli_cmd("node_discover", "1", json_output=True),  # Discover clients only
             ]
             
             nodes_discovered = 0
@@ -2003,13 +2168,52 @@ class MeshHandler:
                     
                     if result.returncode == 0 and result.stdout.strip():
                         output = result.stdout.strip()
-                        # Parse discovered nodes from output
-                        # Format varies - could be names, node IDs, or structured data
-                        # Extract any node identifiers
-                        node_names = re.findall(r'\b[A-Za-z0-9_]+', output)
-                        node_ids = re.findall(r'![\da-fA-F]+', output)
                         
-                        all_nodes = set(node_names + node_ids)
+                        # Try to parse JSON response first
+                        json_response = self._parse_json_response(output)
+                        all_nodes = set()
+                        
+                        if json_response:
+                            if isinstance(json_response, dict):
+                                # Expected format: {"nodes": [{"name": "...", "public_key": "...", ...}]}
+                                nodes_list = json_response.get("nodes", [])
+                                if isinstance(nodes_list, list):
+                                    for node_info in nodes_list:
+                                        if isinstance(node_info, dict):
+                                            # Extract name and public_key
+                                            name = node_info.get("name") or node_info.get("adv_name")
+                                            pub_key = node_info.get("public_key") or node_info.get("pub_key")
+                                            if name:
+                                                all_nodes.add(name)
+                                            if pub_key:
+                                                # Use short hex ID
+                                                pub_clean = pub_key.lstrip("!").lower().strip()
+                                                if re.fullmatch(r'[a-f0-9]{8,}', pub_clean):
+                                                    hex_id = pub_clean[:12] if len(pub_clean) >= 12 else pub_clean
+                                                    all_nodes.add(hex_id)
+                            elif isinstance(json_response, list):
+                                # If response is a list of nodes
+                                for node_info in json_response:
+                                    if isinstance(node_info, dict):
+                                        name = node_info.get("name") or node_info.get("adv_name")
+                                        pub_key = node_info.get("public_key") or node_info.get("pub_key")
+                                        if name:
+                                            all_nodes.add(name)
+                                        if pub_key:
+                                            pub_clean = pub_key.lstrip("!").lower().strip()
+                                            if re.fullmatch(r'[a-f0-9]{8,}', pub_clean):
+                                                hex_id = pub_clean[:12] if len(pub_clean) >= 12 else pub_clean
+                                                all_nodes.add(hex_id)
+                        
+                        # Fallback to text parsing if JSON parsing failed
+                        if not all_nodes:
+                            # Parse discovered nodes from text output
+                            # Format varies - could be names, node IDs, or structured data
+                            # Extract any node identifiers
+                            node_names = re.findall(r'\b[A-Za-z0-9_]+', output)
+                            node_ids = re.findall(r'![\da-fA-F]+', output)
+                            all_nodes = set(node_names + node_ids)
+                        
                         nodes_discovered = len(all_nodes)
                         
                         # Track discovered nodes locally
@@ -2024,49 +2228,26 @@ class MeshHandler:
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
             
-            # Also sync with MeshCore's contact list
+            # Also sync with MeshCore's contact list using JSON
             # This ensures we're tracking nodes that MeshCore already knows about
             # This is the PRIMARY source for name -> node_id mappings
             try:
-                result = subprocess.run(
-                    self._build_meshcli_cmd("contacts"),
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
+                # Use JSON contacts - clean and reliable
+                name_to_pub = self._get_contacts_name_to_pubkey_map(force_refresh=True)
                 
-                if result.returncode == 0 and result.stdout.strip():
-                    output = result.stdout.strip()
-                    lines = output.split('\n')
+                for name, hex_id in name_to_pub.items():
+                    try:
+                        import database
+                        database.store_contact(name, hex_id)
+                        print(f"[DEBUG] Stored contact: '{name}' -> '{hex_id}'")
+                        # Also add to friends set (use hex node ID, not name)
+                        if hex_id not in self.friends:
+                            self.friends.add(hex_id)
+                    except Exception as e:
+                        print(f"[DEBUG] Error storing contact: {e}")
                     
-                    for line in lines:
-                        line = line.strip()
-                        if not line or line.startswith('>') or 'contacts in device' in line.lower():
-                            continue
-                        
-                        # Parse: "name <spaces> type <spaces> node_id <spaces> hop_count"
-                        # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
-                        parts = [p.strip() for p in line.split() if p.strip()]
-                        
-                        if len(parts) >= 3:
-                            # parts[0] = name, parts[1] = type, parts[2] = node_id
-                            name = parts[0]
-                            node_id_candidate = parts[2] if len(parts) > 2 else None
-                            
-                            # Check if node_id_candidate looks like a node ID
-                            if node_id_candidate and re.match(r'^[a-fA-F0-9]{8,}$', node_id_candidate):
-                                try:
-                                    import database
-                                    database.store_contact(name, node_id_candidate)
-                                    print(f"[DEBUG] Stored contact: '{name}' -> '{node_id_candidate}'")
-                                    # Also add to friends set (use node ID, not name)
-                                    if node_id_candidate not in self.friends:
-                                        self.friends.add(node_id_candidate)
-                                except Exception as e:
-                                    print(f"[DEBUG] Error storing contact: {e}")
-                    
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+            except Exception as e:
+                print(f"[DEBUG] Error syncing contacts from JSON: {e}")
                     
         except Exception as e:
             # Silently fail - discovery is optional
