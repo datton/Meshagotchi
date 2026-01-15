@@ -55,7 +55,12 @@ class GameEngine:
         
         if not command_text.startswith('/'):
             # Not a command, treat as unknown
-            return "Unknown command. Send /help to learn more."
+            return (
+                "Welcome to MeshAgotchi!\n"
+                "A virtual pet game on LoRa mesh networks. "
+                "Hatch and care for your unique pet by feeding, cleaning, and playing with them.\n"
+                "Send /help to get started."
+            )
         
         # Split command and args
         parts = command_text.split(None, 1)
@@ -344,7 +349,12 @@ class GameEngine:
     
     def _handle_unknown_command(self) -> str:
         """Handle unknown commands."""
-        return "Unknown command. Send /help to learn more."
+        return (
+            "Welcome to MeshAgotchi!\n"
+            "A virtual pet game on LoRa mesh networks. "
+            "Hatch and care for your unique pet by feeding, cleaning, and playing with them.\n"
+            "Send /help to get started."
+        )
     
     def _update_pet_decay(self, pet_id: int):
         """Calculate time since last interaction and apply stat decay."""
