@@ -91,9 +91,18 @@ class MeshAgotchiDaemon:
                     # Process command
                     response = self.game_engine.process_command(sender_node_id, command_text)
                     
-                    # Send response
+                    # Send response (handle both single string and list of strings)
                     if response and sender_node_id:
-                        self.mesh_handler.send(sender_node_id, response)
+                        if isinstance(response, list):
+                            # Send each part separately
+                            for part in response:
+                                if part:
+                                    self.mesh_handler.send(sender_node_id, part)
+                                    # Small delay between parts to avoid overwhelming the radio
+                                    time.sleep(0.5)
+                        else:
+                            # Single string response
+                            self.mesh_handler.send(sender_node_id, response)
                 
                 # Process pending messages in queue
                 self.mesh_handler.process_pending_messages()

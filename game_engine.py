@@ -39,7 +39,7 @@ class GameEngine:
         """Initialize game engine."""
         self.db_path = db_path
     
-    def process_command(self, node_id: str, command_text: str) -> str:
+    def process_command(self, node_id: str, command_text: str):
         """
         Main entry point for processing commands.
         
@@ -116,44 +116,87 @@ class GameEngine:
             "/name <n> - Name"
         )
     
-    def _handle_howto(self) -> str:
-        """Return comprehensive game guide."""
-        return (
-            "MeshAgotchi - Virtual Pet Game\n"
-            "==============================\n\n"
+    def _handle_howto(self) -> List[str]:
+        """Return comprehensive game guide split into multiple parts."""
+        parts = []
+        
+        # Part 1: Title and How to Play
+        part1 = (
+            "MeshAgotchi Guide\n"
             "HOW TO PLAY:\n"
-            "1. Start: Use /hatch to create your pet\n"
-            "2. Care: Use /feed, /clean, and /play to maintain your pet\n"
-            "3. Monitor: Use /stats to see your pet's appearance and stats\n"
-            "4. Check: Use /status for quick status and evolution countdown\n\n"
+            "1. Start: /hatch\n"
+            "2. Care: /feed, /clean, /play\n"
+            "3. Monitor: /stats\n"
+            "4. Check: /status"
+        )
+        parts.append(part1)
+        
+        # Part 2: Stats
+        part2 = (
             "STATS:\n"
-            "- Health: Drops if hunger > 80 or hygiene < 20\n"
-            "- Hunger: Increases over time, use /feed to decrease\n"
-            "- Hygiene: Decreases over time, use /clean to increase\n"
-            "- Happiness: Decreases without interaction, use /play to increase\n"
-            "- Energy: Regenerates 10/hour, needed for /play (min 20)\n\n"
-            "EVOLUTION STAGES:\n"
-            "- Egg: 0-1 hour\n"
-            "- Child: 1-24 hours\n"
-            "- Teen: 24-72 hours\n"
-            "- Adult: 72-168 hours (7 days)\n"
-            "- Elder: 168+ hours\n\n"
+            "- Health: Drops if hunger>80 or hygiene<20\n"
+            "- Hunger: Increases, use /feed\n"
+            "- Hygiene: Decreases, use /clean\n"
+            "- Happiness: Use /play\n"
+            "- Energy: Regen 10/hr, need 20 for /play"
+        )
+        parts.append(part2)
+        
+        # Part 3: Evolution Stages
+        part3 = (
+            "EVOLUTION:\n"
+            "- Egg: 0-1hr\n"
+            "- Child: 1-24hrs\n"
+            "- Teen: 24-72hrs\n"
+            "- Adult: 72-168hrs\n"
+            "- Elder: 168+hrs"
+        )
+        parts.append(part3)
+        
+        # Part 4: Commands
+        part4 = (
             "COMMANDS:\n"
-            "/hatch - Create new pet\n"
-            "/stats - View pet stats & ASCII art\n"
+            "/hatch - New pet\n"
+            "/stats - Stats & art\n"
             "/feed - Decrease hunger\n"
             "/clean - Increase hygiene\n"
-            "/play - Increase happiness (costs 20 energy)\n"
-            "/status - Quick status & evolution countdown\n"
-            "/name <name> - Name your pet\n"
-            "/help - List all commands\n"
+            "/play - Increase happiness"
+        )
+        parts.append(part4)
+        
+        # Part 5: More Commands and Tips
+        part5 = (
+            "/status - Quick status\n"
+            "/name <n> - Name pet\n"
+            "/help - List commands\n"
             "/howto - This guide\n\n"
             "TIPS:\n"
-            "- Check /status regularly to see evolution progress\n"
-            "- Keep hunger < 80 and hygiene > 20 to maintain health\n"
-            "- Energy regenerates automatically, wait if too low to play\n"
-            "- Each pet generation has unique traits based on your Node ID"
+            "- Check /status regularly\n"
+            "- Keep hunger<80, hygiene>20"
         )
+        parts.append(part5)
+        
+        # Part 6: Final Tips
+        part6 = (
+            "- Energy regens auto\n"
+            "- Wait if too low to play\n"
+            "- Each generation unique\n"
+            "based on Node ID"
+        )
+        parts.append(part6)
+        
+        # Add counters to each part and ensure they're under 200 chars
+        total_parts = len(parts)
+        result = []
+        for i, part in enumerate(parts, 1):
+            counter = f" ({i}/{total_parts})"
+            # Ensure part + counter is under 200 chars
+            max_part_len = 200 - len(counter)
+            if len(part) > max_part_len:
+                part = part[:max_part_len - 3] + "..."
+            result.append(part + counter)
+        
+        return result
     
     def _handle_hatch(self, node_id: str, user: Dict, pet: Optional[Dict]) -> str:
         """Handle /hatch command - create new pet."""
