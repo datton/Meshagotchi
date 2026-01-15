@@ -342,9 +342,14 @@ class MeshHandler:
                             # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                             lines = contacts_output.splitlines()
                             
-                            # Clean the name for matching - strip whitespace and remove invisible chars
+                            # Clean the name for matching - aggressively remove all invisible/non-printable chars
+                            # First normalize whitespace
                             name_clean = _normalize_meshcli_text(name_raw).strip()
-                            print(f"[DEBUG] Looking for contact with name: '{name_clean}' (cleaned from '{name_raw}', length={len(name_clean)})")
+                            # Then remove ALL non-printable characters except alphanumeric, dash, underscore, dot
+                            # This handles cases where invisible characters survive normalization
+                            name_clean = "".join(ch for ch in name_clean if ch.isprintable() and (ch.isalnum() or ch in '-_.'))
+                            name_clean = name_clean.strip()
+                            print(f"[DEBUG] Looking for contact with name: '{name_clean}' (cleaned from '{name_raw}', length={len(name_clean)}, repr={repr(name_clean)})")
                             
                             for line_num, line_original in enumerate(lines):
                                 line = _normalize_meshcli_text(line_original).strip()
@@ -362,10 +367,12 @@ class MeshHandler:
                                     contact_name = parts[0].strip()
                                     contact_hex_id = parts[2].strip() if len(parts) > 2 else None
                                     
-                                    # Clean contact name the same way for comparison
+                                    # Clean contact name the same aggressive way for comparison
                                     contact_name_clean = _normalize_meshcli_text(contact_name).strip()
+                                    contact_name_clean = "".join(ch for ch in contact_name_clean if ch.isprintable() and (ch.isalnum() or ch in '-_.'))
+                                    contact_name_clean = contact_name_clean.strip()
                                     
-                                    print(f"[DEBUG] Line {line_num}: contact_name='{contact_name_clean}' (len={len(contact_name_clean)}), hex_id='{contact_hex_id}'")
+                                    print(f"[DEBUG] Line {line_num}: contact_name='{contact_name_clean}' (len={len(contact_name_clean)}, repr={repr(contact_name_clean)}), hex_id='{contact_hex_id}'")
                                     print(f"[DEBUG] Comparing: '{contact_name_clean}' == '{name_clean}'? {contact_name_clean == name_clean}")
                                     
                                     # Check if this contact matches the name from the message
