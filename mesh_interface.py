@@ -689,6 +689,11 @@ class MeshHandler:
                     elif json_response.get("ok") or "ok" in str(json_response).lower():
                         send_success = True
                         print(f"[DEBUG] Message sent successfully (JSON confirmation)")
+                    elif "expected_ack" in json_response or "suggested_timeout" in json_response:
+                        # Response format: {"type": 0, "expected_ack": "...", "suggested_timeout": ...}
+                        # This indicates the message was successfully sent and is waiting for ACK
+                        send_success = True
+                        print(f"[DEBUG] Message sent successfully (waiting for ACK: {json_response.get('expected_ack', 'N/A')})")
                 elif isinstance(json_response, list):
                     # Array response like [{"type":0,"expected_ack":"..."},{"code":"..."}]
                     # This typically indicates success
@@ -734,6 +739,11 @@ class MeshHandler:
                             if isinstance(json_response, dict):
                                 if json_response.get("error") or json_response.get("error_code"):
                                     continue  # Still an error, try next
+                                elif "expected_ack" in json_response or "suggested_timeout" in json_response:
+                                    # Success response with ACK info
+                                    send_success = True
+                                    print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
+                                    break
                                 else:
                                     send_success = True
                                     print(f"[DEBUG] Successfully sent with node ID '{try_id}'!")
@@ -770,7 +780,13 @@ class MeshHandler:
                         json_response = self._parse_json_response(stdout_text)
                         if json_response:
                             if isinstance(json_response, dict):
-                                if not (json_response.get("error") or json_response.get("error_code")):
+                                if json_response.get("error") or json_response.get("error_code"):
+                                    # Still an error
+                                    pass
+                                elif "expected_ack" in json_response or "suggested_timeout" in json_response:
+                                    # Success response with ACK info
+                                    send_success = True
+                                elif not (json_response.get("error") or json_response.get("error_code")):
                                     send_success = True
                             elif isinstance(json_response, list):
                                 send_success = True
