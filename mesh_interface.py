@@ -350,7 +350,8 @@ class MeshHandler:
         """
         Polls MeshCore CLI for new messages using recv command with JSON output.
         
-        Expected JSON format: {"from": "node_name", "message": "text", "hop": 0}
+        Expected JSON format: {"type": "PRIV", "pubkey_prefix": "0b2c2328618f", "text": "Hi", ...}
+        The pubkey_prefix is the hex node ID that should be used as the destination for replies.
         Falls back to text parsing for backward compatibility with older firmware.
         
         Returns:
@@ -385,14 +386,29 @@ class MeshHandler:
                 # Try JSON format first
                 json_response = self._parse_json_response(output)
                 if json_response and isinstance(json_response, dict):
-                    # Extract from and message fields from JSON
-                    node_id = json_response.get("from") or json_response.get("sender")
-                    message = json_response.get("message") or json_response.get("msg")
+                    # Extract pubkey_prefix (hex node ID) and text (message) from JSON
+                    # pubkey_prefix is the destination address for replies
+                    node_id = json_response.get("pubkey_prefix")
+                    message = json_response.get("text")
                     
                     if node_id and message:
-                        print(f"[DEBUG] Parsed JSON format: node_id={node_id}, message={message}")
+                        # pubkey_prefix is already a hex node ID, no lookup needed
+                        # Clean it up (remove any ! prefix, ensure lowercase)
+                        node_id = node_id.lstrip("!").lower().strip()
+                        # Verify it's a valid hex string
+                        if re.fullmatch(r'^[a-f0-9]{8,}$', node_id):
+                            print(f"[DEBUG] Parsed JSON format: node_id={node_id}, message={message}")
+                            # Store node ID in friends (use hex node ID)
+                            if node_id not in self.friends:
+                                self.friends.add(node_id)
+                            print(f"[MESSAGE RECEIVED] From: '{node_id}' (hex node ID from pubkey_prefix), Message: '{message}'")
+                            return (node_id, message)
+                        else:
+                            print(f"[DEBUG] Invalid pubkey_prefix format: '{node_id}'")
+                            node_id = None
+                            message = None
                     else:
-                        print(f"[DEBUG] JSON response missing required fields: {json_response}")
+                        print(f"[DEBUG] JSON response missing required fields (pubkey_prefix or text): {json_response}")
                         json_response = None
                 
                 # Fallback to text parsing if JSON parsing failed
