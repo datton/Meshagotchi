@@ -290,13 +290,13 @@ class GameEngine:
         
         return "Play session complete. Happiness increased!"
     
-    def _handle_status(self, node_id: str, pet: Optional[Dict]) -> str:
-        """Handle /status command - show all stats and status info."""
+    def _handle_status(self, node_id: str, pet: Optional[Dict]) -> List[str]:
+        """Handle /status command - show all stats and status info, split into multiple messages."""
         if not pet:
-            return "No active pet. Use /hatch to create one."
+            return ["No active pet. Use /hatch to create one."]
         
         if not pet.get('is_alive'):
-            return f"Pet died: {pet.get('death_reason', 'Unknown')}. Use /hatch for new pet."
+            return [f"Pet died: {pet.get('death_reason', 'Unknown')}. Use /hatch for new pet."]
         
         # Calculate time alive
         birth_time = datetime.datetime.fromisoformat(pet['birth_time'])
@@ -344,28 +344,84 @@ class GameEngine:
                     time_until_evolution = f"{days_until:.1f} days until elder"
         # elder -> death: don't show time until death
         
-        # Build status message with all stats
+        # Build status message parts
+        parts = []
+        
+        # Part 1: Name and basic info
         name_line = f"Name: {pet.get('name', 'Unnamed')}" if pet.get('name') else ""
-        status = f"Age: {age_stage}\n"
-        status += f"Health: {pet['health']}/100\n"
-        status += f"Hunger: {pet['hunger']}/100\n"
-        status += f"Hygiene: {pet['hygiene']}/100\n"
-        status += f"Happiness: {pet['happiness']}/100\n"
-        status += f"Energy: {pet['energy']}/100\n"
-        status += f"Alive: {time_alive}"
-        
         if name_line:
-            status = f"{name_line}\n{status}"
+            parts.append(f"{name_line}\nAge: {age_stage}")
+        else:
+            parts.append(f"Age: {age_stage}")
         
+        # Part 2: Core stats
+        stats = f"Health: {pet['health']}/100\n"
+        stats += f"Hunger: {pet['hunger']}/100\n"
+        stats += f"Hygiene: {pet['hygiene']}/100"
+        parts.append(stats)
+        
+        # Part 3: Secondary stats
+        secondary = f"Happiness: {pet['happiness']}/100\n"
+        secondary += f"Energy: {pet['energy']}/100\n"
+        secondary += f"Alive: {time_alive}"
+        parts.append(secondary)
+        
+        # Part 4: Evolution and flavor (if applicable)
+        part4_lines = []
         if time_until_evolution:
-            status += f"\nNext: {time_until_evolution}"
+            part4_lines.append(f"Next: {time_until_evolution}")
         
-        # Add flavor text
         flavor = self._get_flavor_text(pet)
         if flavor:
-            status += f"\n{flavor}"
+            part4_lines.append(flavor)
         
-        return status
+        if part4_lines:
+            parts.append("\n".join(part4_lines))
+        
+        # Split parts into chunks of ~150 chars and add counters
+        max_chunk_size = 150
+        messages = []
+        
+        for part in parts:
+            # If part fits in one message, add it
+            if len(part) <= max_chunk_size - 10:  # Reserve space for counter
+                messages.append(part)
+            else:
+                # Split part into lines and group them
+                lines = part.split('\n')
+                current_chunk = []
+                current_size = 0
+                
+                for line in lines:
+                    line_with_newline = line + '\n' if current_chunk else line
+                    line_size = len(line_with_newline)
+                    
+                    # If adding this line would exceed limit, finalize current chunk
+                    if current_size + line_size > max_chunk_size - 10:
+                        if current_chunk:
+                            messages.append('\n'.join(current_chunk))
+                            current_chunk = []
+                            current_size = 0
+                    
+                    current_chunk.append(line)
+                    current_size += line_size
+                
+                # Add remaining chunk
+                if current_chunk:
+                    messages.append('\n'.join(current_chunk))
+        
+        # Add counters to each message
+        total_messages = len(messages)
+        result = []
+        for i, msg in enumerate(messages, 1):
+            counter = f" ({i}/{total_messages})"
+            # Ensure message + counter fits in ~150 chars
+            max_msg_len = max_chunk_size - len(counter)
+            if len(msg) > max_msg_len:
+                msg = msg[:max_msg_len - 3] + "..."
+            result.append(msg + counter)
+        
+        return result
     
     def _handle_name(self, node_id: str, pet: Optional[Dict], name: str) -> str:
         """Handle /name command - assign name to pet."""
