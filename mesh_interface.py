@@ -338,32 +338,58 @@ class MeshHandler:
                             print(f"[DEBUG] Contacts list: {contacts_output[:200]}...")
                             
                             # Parse contacts list line by line
-                            # Format: "name CLI hex_id hop_count" or "name REP hex_id hop_count"
-                            # Example: "Mattd-t1000-002 CLI 0b2c2328618f 0 hop"
+                            # Format: "name                CLI   hex_id  hop_count" (with variable spacing)
+                            # Example: "Mattd-t1000-002                CLI   0b2c2328618f  0 hop"
                             lines = contacts_output.splitlines()
                             
-                            for line in lines:
-                                line = line.strip()
+                            # Clean the name for matching - strip whitespace and remove invisible chars
+                            name_clean = _normalize_meshcli_text(name_raw).strip()
+                            print(f"[DEBUG] Looking for contact with name: '{name_clean}' (cleaned from '{name_raw}', length={len(name_clean)})")
+                            
+                            for line_num, line_original in enumerate(lines):
+                                line = _normalize_meshcli_text(line_original).strip()
                                 if not line or line.startswith('>') or 'contacts in device' in line.lower():
                                     continue
                                 
-                                # Split by whitespace to get parts
-                                parts = line.split()
+                                print(f"[DEBUG] Parsing line {line_num}: '{line[:80]}...'")
+                                
+                                # Split by whitespace to get parts (this handles variable spacing)
+                                parts = [p for p in line.split() if p]
+                                print(f"[DEBUG] Line {line_num} parts: {parts}")
+                                
                                 if len(parts) >= 3:
                                     # parts[0] = name, parts[1] = type (CLI/REP), parts[2] = hex_id
                                     contact_name = parts[0].strip()
                                     contact_hex_id = parts[2].strip() if len(parts) > 2 else None
                                     
+                                    # Clean contact name the same way for comparison
+                                    contact_name_clean = _normalize_meshcli_text(contact_name).strip()
+                                    
+                                    print(f"[DEBUG] Line {line_num}: contact_name='{contact_name_clean}' (len={len(contact_name_clean)}), hex_id='{contact_hex_id}'")
+                                    print(f"[DEBUG] Comparing: '{contact_name_clean}' == '{name_clean}'? {contact_name_clean == name_clean}")
+                                    
                                     # Check if this contact matches the name from the message
-                                    # Use a simple comparison - the name should match exactly (after cleaning)
-                                    if contact_name == name_raw or contact_name.startswith(name_raw) or name_raw.startswith(contact_name):
+                                    # Try exact match first
+                                    if contact_name_clean == name_clean:
                                         # Verify the hex_id looks valid
                                         if contact_hex_id and re.fullmatch(r'^[a-fA-F0-9]{8,}$', contact_hex_id):
                                             hex_node_id = contact_hex_id.lower()
-                                            print(f"[DEBUG] Found matching contact: name='{contact_name}' -> hex_id='{hex_node_id}'")
+                                            print(f"[DEBUG] ✓✓✓ EXACT MATCH FOUND on line {line_num}: name='{contact_name}' -> hex_id='{hex_node_id}'")
                                             break
+                                        else:
+                                            print(f"[DEBUG] Contact matched but hex_id '{contact_hex_id}' is invalid")
+                                    # Fallback: try if one starts with the other (handles trailing spaces/characters)
+                                    elif contact_name_clean.startswith(name_clean) or name_clean.startswith(contact_name_clean):
+                                        if contact_hex_id and re.fullmatch(r'^[a-fA-F0-9]{8,}$', contact_hex_id):
+                                            hex_node_id = contact_hex_id.lower()
+                                            print(f"[DEBUG] ✓✓✓ PARTIAL MATCH FOUND on line {line_num}: name='{contact_name}' -> hex_id='{hex_node_id}'")
+                                            break
+                                    else:
+                                        print(f"[DEBUG] No match on line {line_num}: '{contact_name_clean}' != '{name_clean}'")
                     except Exception as e:
                         print(f"[DEBUG] Error querying contacts list directly: {e}")
+                        import traceback
+                        traceback.print_exc()
                     
                     # If direct parsing didn't work, try JSON contacts mapping
                     if not hex_node_id:
