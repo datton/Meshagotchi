@@ -86,8 +86,8 @@ class GameEngine:
             return self._handle_howto()
         elif command == '/hatch':
             return self._handle_hatch(node_id, user, pet)
-        elif command == '/stats':
-            return self._handle_stats(node_id, pet)
+        elif command == '/pet':
+            return self._handle_pet(node_id, pet)
         elif command == '/feed':
             return self._handle_feed(node_id, pet)
         elif command == '/clean':
@@ -108,7 +108,7 @@ class GameEngine:
             "/help - Help\n"
             "/howto - Game guide\n"
             "/hatch - New pet\n"
-            "/stats - Stats & art\n"
+            "/pet - ASCII art\n"
             "/feed - Feed\n"
             "/clean - Clean\n"
             "/play - Play\n"
@@ -126,7 +126,7 @@ class GameEngine:
             "HOW TO PLAY:\n"
             "1. Start: /hatch\n"
             "2. Care: /feed, /clean, /play\n"
-            "3. Monitor: /stats\n"
+            "3. Monitor: /pet & /status\n"
             "4. Check: /status"
         )
         parts.append(part1)
@@ -138,7 +138,7 @@ class GameEngine:
             "- Hunger: Increases, use /feed\n"
             "- Hygiene: Decreases, use /clean\n"
             "- Happiness: Use /play\n"
-            "- Energy: Regen 10/hr, need 20 for /play"
+            "- Energy: Regen 10/hr, need 20"
         )
         parts.append(part2)
         
@@ -157,7 +157,7 @@ class GameEngine:
         part4 = (
             "COMMANDS:\n"
             "/hatch - New pet\n"
-            "/stats - Stats & art\n"
+            "/pet - ASCII art\n"
             "/feed - Decrease hunger\n"
             "/clean - Increase hygiene\n"
             "/play - Increase happiness"
@@ -202,7 +202,7 @@ class GameEngine:
         """Handle /hatch command - create new pet."""
         # Check if user already has a living pet
         if pet and pet.get('is_alive'):
-            return "You already have a living pet! Use /stats to check on them."
+            return "You already have a living pet! Use /pet or /status to check on them."
         
         # Create new pet
         generation = user.get('total_pets_raised', 0) + 1
@@ -210,11 +210,11 @@ class GameEngine:
         
         return (
             f"Signal acquired! Pet Generation {generation} hatched!\n"
-            "Use /stats to see your new pet."
+            "Use /pet or /status to see your new pet."
         )
     
-    def _handle_stats(self, node_id: str, pet: Optional[Dict]) -> str:
-        """Handle /stats command - show pet stats and ASCII art."""
+    def _handle_pet(self, node_id: str, pet: Optional[Dict]) -> str:
+        """Handle /pet command - show ASCII art only (up to 200 chars)."""
         if not pet:
             return "No active pet. Use /hatch to create one."
         
@@ -229,27 +229,11 @@ class GameEngine:
             pet.get('name')
         )
         
-        # Build stats message
-        name_line = f"Name: {pet.get('name', 'Unnamed')}" if pet.get('name') else ""
-        stats = (
-            f"{ascii_art}\n"
-            f"Age: {pet['age_stage']}\n"
-            f"Health: {pet['health']}/100\n"
-            f"Hunger: {pet['hunger']}/100\n"
-            f"Hygiene: {pet['hygiene']}/100\n"
-            f"Happiness: {pet['happiness']}/100\n"
-            f"Energy: {pet['energy']}/100"
-        )
+        # Truncate to fit within 200 characters
+        if len(ascii_art) > 200:
+            ascii_art = ascii_art[:197] + "..."
         
-        if name_line:
-            stats = f"{name_line}\n{stats}"
-        
-        # Add flavor text
-        flavor = self._get_flavor_text(pet)
-        if flavor:
-            stats += f"\n{flavor}"
-        
-        return stats
+        return ascii_art
     
     def _handle_feed(self, node_id: str, pet: Optional[Dict]) -> str:
         """Handle /feed command - increase hunger."""
@@ -309,7 +293,7 @@ class GameEngine:
         return "Play session complete. Happiness increased!"
     
     def _handle_status(self, node_id: str, pet: Optional[Dict]) -> str:
-        """Handle /status command - quick status check."""
+        """Handle /status command - show all stats and status info."""
         if not pet:
             return "No active pet. Use /hatch to create one."
         
@@ -362,13 +346,26 @@ class GameEngine:
                     time_until_evolution = f"{days_until:.1f} days until elder"
         # elder -> death: don't show time until death
         
-        # Build status message
-        status = f"Status: {age_stage}\n"
+        # Build status message with all stats
+        name_line = f"Name: {pet.get('name', 'Unnamed')}" if pet.get('name') else ""
+        status = f"Age: {age_stage}\n"
         status += f"Health: {pet['health']}/100\n"
+        status += f"Hunger: {pet['hunger']}/100\n"
+        status += f"Hygiene: {pet['hygiene']}/100\n"
+        status += f"Happiness: {pet['happiness']}/100\n"
+        status += f"Energy: {pet['energy']}/100\n"
         status += f"Alive: {time_alive}"
         
+        if name_line:
+            status = f"{name_line}\n{status}"
+        
         if time_until_evolution:
-            status += f"\nNext evolution: {time_until_evolution}"
+            status += f"\nNext: {time_until_evolution}"
+        
+        # Add flavor text
+        flavor = self._get_flavor_text(pet)
+        if flavor:
+            status += f"\n{flavor}"
         
         return status
     
@@ -614,7 +611,7 @@ class GameEngine:
     def _generate_age_upgrade_message(self, pet: Dict, old_stage: str, new_stage: str) -> str:
         """Generate celebration message for aging up."""
         messages = {
-            ('egg', 'child'): "Signal acquired! Your pet has hatched! Use /stats to see them.",
+            ('egg', 'child'): "Signal acquired! Your pet has hatched! Use /pet or /status to see them.",
             ('child', 'teen'): "Firmware update complete! Your pet is now a Teen.",
             ('teen', 'adult'): "System upgrade successful! Your pet reached Adulthood!",
             ('adult', 'elder'): "Legacy mode activated. Your pet is now an Elder.",
