@@ -703,10 +703,56 @@ class MeshHandler:
             if 'node_id' in locals() and 'message' in locals():
                 self.message_queue.put((node_id, message))
     
+    def _format_ascii_art_for_mobile(self, text: str) -> str:
+        """
+        Format ASCII art for better mobile display.
+        Left-aligns the art to work with mobile apps that strip leading spaces
+        or use proportional fonts, while preserving internal spacing for alignment.
+        
+        Args:
+            text: ASCII art text with potential leading spaces
+        
+        Returns:
+            Formatted ASCII art optimized for mobile display
+        """
+        lines = text.split('\n')
+        
+        # Remove completely empty lines at start/end only
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        
+        if not lines:
+            return text
+        
+        # Find minimum leading spaces across all non-empty lines
+        # This allows us to left-align while preserving relative positioning
+        non_empty_lines = [line for line in lines if line.strip()]
+        if not non_empty_lines:
+            return '\n'.join(lines)
+        
+        min_leading = min(len(line) - len(line.lstrip()) for line in non_empty_lines)
+        
+        # Left-align by removing the minimum leading spaces from all lines
+        # This preserves the relative alignment between lines
+        formatted_lines = []
+        for line in lines:
+            if line.strip():
+                # Remove minimum leading spaces to left-align
+                # Preserve trailing spaces for internal alignment
+                formatted_line = line[min_leading:] if min_leading > 0 else line
+                formatted_lines.append(formatted_line)
+            else:
+                # Keep empty lines as-is
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
+    
     def _sanitize_message(self, text: str) -> str:
         """
         Remove excessive whitespace and ensure message is under max length.
-        Preserves exact formatting for ASCII art to maintain proper alignment.
+        Formats ASCII art for mobile display compatibility.
         
         Args:
             text: Original message text
@@ -731,15 +777,8 @@ class MeshHandler:
                 is_ascii_art = True
         
         if is_ascii_art:
-            # For ASCII art: preserve exact formatting including trailing spaces
-            # Only remove completely empty lines at start/end
-            while lines and not lines[0].strip():
-                lines.pop(0)
-            while lines and not lines[-1].strip():
-                lines.pop()
-            
-            # Preserve all whitespace (including trailing spaces) for alignment
-            sanitized = '\n'.join(lines)
+            # For ASCII art: format for mobile display (left-align, preserve relative spacing)
+            sanitized = self._format_ascii_art_for_mobile(text)
         else:
             # For regular text: strip trailing whitespace from each line
             cleaned_lines = [line.rstrip() for line in lines]
