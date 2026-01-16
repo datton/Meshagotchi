@@ -706,6 +706,7 @@ class MeshHandler:
     def _sanitize_message(self, text: str) -> str:
         """
         Remove excessive whitespace and ensure message is under max length.
+        Preserves exact formatting for ASCII art to maintain proper alignment.
         
         Args:
             text: Original message text
@@ -713,18 +714,44 @@ class MeshHandler:
         Returns:
             Sanitized message
         """
-        # Strip leading/trailing whitespace from each line
+        # Detect if this is ASCII art (contains ASCII art patterns and multiple lines)
         lines = text.split('\n')
-        cleaned_lines = [line.rstrip() for line in lines]
+        is_ascii_art = False
         
-        # Remove empty lines at start/end
-        while cleaned_lines and not cleaned_lines[0].strip():
-            cleaned_lines.pop(0)
-        while cleaned_lines and not cleaned_lines[-1].strip():
-            cleaned_lines.pop()
+        if len(lines) >= 3:  # ASCII art typically has multiple lines
+            # Check for ASCII art patterns: brackets, pipes, slashes, etc.
+            ascii_art_chars = set('|[](){}<>/\\=+-*#@$%&~^')
+            ascii_line_count = 0
+            for line in lines:
+                if any(c in ascii_art_chars for c in line):
+                    ascii_line_count += 1
+            
+            # If most lines contain ASCII art characters, treat as ASCII art
+            if ascii_line_count >= len(lines) * 0.5:  # At least 50% of lines have ASCII chars
+                is_ascii_art = True
         
-        # Rejoin
-        sanitized = '\n'.join(cleaned_lines)
+        if is_ascii_art:
+            # For ASCII art: preserve exact formatting including trailing spaces
+            # Only remove completely empty lines at start/end
+            while lines and not lines[0].strip():
+                lines.pop(0)
+            while lines and not lines[-1].strip():
+                lines.pop()
+            
+            # Preserve all whitespace (including trailing spaces) for alignment
+            sanitized = '\n'.join(lines)
+        else:
+            # For regular text: strip trailing whitespace from each line
+            cleaned_lines = [line.rstrip() for line in lines]
+            
+            # Remove empty lines at start/end
+            while cleaned_lines and not cleaned_lines[0].strip():
+                cleaned_lines.pop(0)
+            while cleaned_lines and not cleaned_lines[-1].strip():
+                cleaned_lines.pop()
+            
+            # Rejoin
+            sanitized = '\n'.join(cleaned_lines)
         
         # Ensure under max length (in bytes)
         if len(sanitized.encode('utf-8')) > self.max_message_length:
