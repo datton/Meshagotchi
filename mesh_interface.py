@@ -22,6 +22,12 @@ try:
 except ImportError:
     BLEAK_AVAILABLE = False
 
+try:
+    import pexpect
+    PEXPECT_AVAILABLE = True
+except ImportError:
+    PEXPECT_AVAILABLE = False
+
 def _is_running_as_root() -> bool:
     """Check if the current process is running as root."""
     try:
@@ -740,36 +746,220 @@ class MeshHandler:
         database.store_ble_device(address, name, pairing_code)
         print(f"Successfully connected to BLE device: {name} ({address})")
     
+    def _pair_ble_device(self, address: str, pairing_code: str) -> bool:
+        """
+        Pair with a BLE device using the provided pairing code.
+        
+        Args:
+            address: BLE MAC address
+            pairing_code: Pairing code/PIN
+        
+        Returns:
+            True if pairing successful, False otherwise
+        """
+        try:
+            print(f"Pairing with BLE device {address} using pairing code...")
+            
+            # First, remove device if already paired (to allow re-pairing)
+            try:
+                remove_cmd = ["bluetoothctl", "remove", address]
+                subprocess.run(remove_cmd, capture_output=True, timeout=3.0)
+                time.sleep(1)
+            except Exception:
+                pass  # Ignore if device doesn't exist
+            
+            # Use bluetoothctl to pair with the device
+            # We'll use pexpect for interactive pairing
+            if not PEXPECT_AVAILABLE:
+                print("pexpect not available, trying alternative pairing method...")
+                return self._pair_ble_device_alternative(address, pairing_code)
+            
+            try:
+                # Start bluetoothctl in interactive mode
+                child = pexpect.spawn("bluetoothctl", encoding='utf-8', timeout=30)
+                child.logfile_read = None  # Don't log everything
+                
+                # Wait for prompt
+                child.expect(["# ", "bluetooth"])
+                time.sleep(0.5)
+                
+                # Remove device if exists
+                child.sendline(f"remove {address}")
+                child.expect(["Device", "not available", "# "], timeout=5)
+                time.sleep(1)
+                
+                # Scan for device
+                child.sendline("scan on")
+                child.expect(["Discovery started", "# "], timeout=5)
+                time.sleep(3)  # Wait for device to be discovered
+                
+                # Pair with device
+                child.sendline(f"pair {address}")
+                index = child.expect([
+                    "Attempting to pair",
+                    "PIN code",
+                    "Enter PIN",
+                    "Pairing successful",
+                    "Failed to pair",
+                    "# "
+                ], timeout=15)
+                
+                # If PIN prompt appears, send the pairing code
+                if index in [1, 2]:  # PIN code or Enter PIN
+                    time.sleep(0.5)
+                    child.sendline(pairing_code)
+                    index = child.expect([
+                        "Pairing successful",
+                        "Failed to pair",
+                        "Authentication",
+                        "# "
+                    ], timeout=15)
+                    
+                    if index == 0:  # Pairing successful
+                        print("Pairing successful")
+                        # Trust the device
+                        child.sendline(f"trust {address}")
+                        child.expect(["trust succeeded", "# "], timeout=5)
+                        child.sendline("quit")
+                        child.close()
+                        time.sleep(2)  # Wait for pairing to complete
+                        return True
+                    else:
+                        print(f"Pairing failed: {child.before}")
+                        child.sendline("quit")
+                        child.close()
+                        return False
+                elif index == 3:  # Pairing successful (no PIN needed)
+                    print("Pairing successful (no PIN required)")
+                    # Trust the device
+                    child.sendline(f"trust {address}")
+                    child.expect(["trust succeeded", "# "], timeout=5)
+                    child.sendline("quit")
+                    child.close()
+                    time.sleep(2)
+                    return True
+                else:
+                    # Pairing might have failed or completed
+                    print(f"Pairing result unclear: {child.before}")
+                    child.sendline("quit")
+                    child.close()
+                    return False
+                    
+            except pexpect.TIMEOUT:
+                print("Pairing timed out")
+                try:
+                    child.sendline("quit")
+                    child.close()
+                except Exception:
+                    pass
+                return False
+            except pexpect.EOF:
+                print("Pairing process ended unexpectedly")
+                return False
+            except Exception as e:
+                print(f"Error during pairing: {e}")
+                return False
+                
+        except Exception as e:
+            print(f"Error pairing BLE device: {e}")
+            return False
+    
+    def _pair_ble_device_alternative(self, address: str, pairing_code: str) -> bool:
+        """
+        Alternative pairing method using bluetoothctl commands.
+        
+        Args:
+            address: BLE MAC address
+            pairing_code: Pairing code/PIN
+        
+        Returns:
+            True if pairing successful, False otherwise
+        """
+        try:
+            # Try using bluetoothctl with expect-like behavior via subprocess
+            # First remove if exists
+            subprocess.run(["bluetoothctl", "remove", address], capture_output=True, timeout=3.0)
+            time.sleep(1)
+            
+            # Try to pair - this is tricky without pexpect, so we'll use a script
+            # Create a temporary expect script
+            import tempfile
+            import os
+            
+            expect_script = f"""#!/usr/bin/expect -f
+set timeout 30
+spawn bluetoothctl
+expect "# "
+send "remove {address}\\r"
+expect "# "
+send "scan on\\r"
+expect "Discovery started"
+sleep 3
+send "pair {address}\\r"
+expect {{
+    "PIN code:" {{ send "{pairing_code}\\r"; exp_continue }}
+    "Enter PIN:" {{ send "{pairing_code}\\r"; exp_continue }}
+    "Pairing successful" {{ send "trust {address}\\r"; expect "trust succeeded"; send "quit\\r"; exit 0 }}
+    "Failed to pair" {{ send "quit\\r"; exit 1 }}
+    timeout {{ send "quit\\r"; exit 1 }}
+}}
+"""
+            
+            # Write expect script to temp file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.exp', delete=False) as f:
+                f.write(expect_script)
+                expect_file = f.name
+            
+            try:
+                os.chmod(expect_file, 0o755)
+                result = subprocess.run(
+                    ["expect", expect_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30.0
+                )
+                
+                if result.returncode == 0:
+                    print("Pairing successful")
+                    time.sleep(2)
+                    return True
+                else:
+                    print(f"Pairing failed: {result.stderr}")
+                    return False
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(expect_file)
+                except Exception:
+                    pass
+                    
+        except FileNotFoundError:
+            # expect not available, try manual bluetoothctl approach
+            print("expect not available, trying manual pairing...")
+            print(f"Please pair manually: bluetoothctl pair {address}")
+            print(f"When prompted for PIN, enter: {pairing_code}")
+            return False
+        except Exception as e:
+            print(f"Error in alternative pairing: {e}")
+            return False
+    
     def _test_ble_connection(self, address: str, pairing_code: Optional[str] = None) -> bool:
         """
         Test BLE connection to a device.
         
         Args:
             address: BLE MAC address
-            pairing_code: Optional pairing code
+            pairing_code: Optional pairing code (will be used to pair if provided)
         
         Returns:
             True if connection successful, False otherwise
         """
         try:
-            # If pairing code is provided, attempt OS-level pairing first
+            # If pairing code is provided, pair the device first
             if pairing_code:
-                try:
-                    # Use bluetoothctl to pair the device
-                    # Note: This may require user interaction, but we'll try automated pairing
-                    pair_cmd = ["bluetoothctl", "pair", address]
-                    pair_result = subprocess.run(
-                        pair_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=10.0
-                    )
-                    # If pairing requires PIN, it will prompt - we can't easily automate this
-                    # The user may need to pair manually via bluetoothctl if this fails
-                    time.sleep(1)  # Brief pause after pairing attempt
-                except Exception as e:
-                    print(f"Note: Automatic pairing may have failed: {e}")
-                    print("You may need to pair manually: bluetoothctl pair " + address)
+                if not self._pair_ble_device(address, pairing_code):
+                    print("Failed to pair device. Connection test will likely fail.")
+                    # Continue anyway to test connection
             
             # Try a simple command to test connection
             # Use meshcli -a <address> with a lightweight command
@@ -789,9 +979,16 @@ class MeshHandler:
                     if "{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
                         return True
             
+            # If connection failed, show error details
+            if result.stderr:
+                print(f"Connection error: {result.stderr.strip()}")
+            if result.stdout:
+                print(f"Connection output: {result.stdout.strip()}")
+            
             return False
             
         except subprocess.TimeoutExpired:
+            print("Connection test timed out")
             return False
         except Exception as e:
             print(f"Error testing BLE connection: {e}")
