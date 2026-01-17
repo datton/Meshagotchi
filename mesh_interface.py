@@ -80,6 +80,103 @@ def _normalize_contact_name(value: str) -> str:
     return normalized
 
 
+def _ensure_bluetooth_enabled() -> bool:
+    """
+    Ensure Bluetooth is powered on and ready for BLE scanning.
+    
+    Returns:
+        True if Bluetooth is enabled, False otherwise
+    """
+    try:
+        # Check Bluetooth power state
+        cmd = ["bluetoothctl", "show"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if result.returncode != 0:
+            print("Warning: Could not check Bluetooth status")
+            return False
+        
+        output = result.stdout
+        
+        # Check if powered is off
+        if "Powered: no" in output or "PowerState: off" in output:
+            print("Bluetooth is powered off. Attempting to power on...")
+            
+            # Try to power on Bluetooth
+            power_cmd = ["bluetoothctl", "power", "on"]
+            power_result = subprocess.run(
+                power_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if power_result.returncode == 0:
+                print("Bluetooth powered on successfully")
+                time.sleep(2)  # Wait for Bluetooth to initialize
+            else:
+                print("Failed to power on Bluetooth automatically.")
+                print("Please run manually: sudo bluetoothctl power on")
+                return False
+        
+        # Check if it's blocked (may need to unblock with rfkill)
+        if "PowerState: off-blocked" in output:
+            print("Bluetooth is blocked. Attempting to unblock with rfkill...")
+            try:
+                # Try to unblock with rfkill (may require sudo)
+                unblock_cmd = ["rfkill", "unblock", "bluetooth"]
+                unblock_result = subprocess.run(
+                    unblock_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
+                if unblock_result.returncode == 0:
+                    print("Bluetooth unblocked successfully")
+                    time.sleep(1)
+                    # Now try to power on
+                    power_cmd = ["bluetoothctl", "power", "on"]
+                    subprocess.run(power_cmd, capture_output=True, timeout=5.0)
+                    time.sleep(2)
+                else:
+                    print("Could not unblock Bluetooth automatically (may need sudo)")
+                    print("Please run manually: sudo rfkill unblock bluetooth")
+            except FileNotFoundError:
+                print("rfkill command not found. Please install rfkill or run manually:")
+                print("  sudo rfkill unblock bluetooth")
+                print("  sudo bluetoothctl power on")
+        
+        # Verify it's now powered on
+        verify_result = subprocess.run(
+            ["bluetoothctl", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if "Powered: yes" in verify_result.stdout:
+            return True
+        else:
+            print("Bluetooth is still not powered on.")
+            print("You may need to run: sudo bluetoothctl power on")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("Timeout checking Bluetooth status")
+        return False
+    except FileNotFoundError:
+        print("bluetoothctl command not found. Please install bluez package.")
+        return False
+    except Exception as e:
+        print(f"Error checking Bluetooth status: {e}")
+        return False
+
+
 def _scan_ble_devices() -> list:
     """
     Scan for available BLE MeshCore devices.
@@ -313,6 +410,16 @@ class MeshHandler:
                 return
         
         # Step 2: No stored device or connection failed - scan and prompt
+        # First ensure Bluetooth is enabled
+        print("Checking Bluetooth status...")
+        if not _ensure_bluetooth_enabled():
+            print("\nBluetooth is not enabled. Please enable Bluetooth first:")
+            print("  sudo bluetoothctl power on")
+            print("Or if blocked, you may need to:")
+            print("  sudo rfkill unblock bluetooth")
+            print("  sudo bluetoothctl power on")
+            raise RuntimeError("Bluetooth is not enabled")
+        
         print("Scanning for BLE devices...")
         devices = _scan_ble_devices()
         
