@@ -835,6 +835,8 @@ class MeshHandler:
         """
         Pair with a BLE device using the provided pairing code.
         
+        First tries meshcli with pairing code if supported, then falls back to bluetoothctl.
+        
         Args:
             address: BLE MAC address
             pairing_code: Pairing code/PIN
@@ -845,6 +847,62 @@ class MeshHandler:
         try:
             print(f"Pairing with BLE device {address} using pairing code...")
             
+            # First, try meshcli with pairing code (if meshcli supports it)
+            try:
+                # Try meshcli connect or pair command with pairing code
+                # Check if meshcli supports pairing code parameter
+                # Common formats: -p, --pin, --pairing-code, --passkey
+                meshcli_pairing_options = [
+                    ["meshcli", "-a", address, "-p", pairing_code, "connect"],
+                    ["meshcli", "-a", address, "--pin", pairing_code, "connect"],
+                    ["meshcli", "-a", address, "--pairing-code", pairing_code, "connect"],
+                    ["meshcli", "-a", address, "--passkey", pairing_code, "connect"],
+                    ["meshcli", "-a", address, "pair", "-p", pairing_code],
+                    ["meshcli", "-a", address, "pair", "--pin", pairing_code],
+                ]
+                
+                for cmd in meshcli_pairing_options:
+                    try:
+                        print(f"Trying meshcli pairing: {' '.join(cmd)}")
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=15.0
+                        )
+                        
+                        # Check if command succeeded or if it's just an unknown option (we'll try next)
+                        if result.returncode == 0:
+                            print("Pairing successful via meshcli!")
+                            time.sleep(2)  # Wait for pairing to complete
+                            return True
+                        elif "unknown" not in result.stderr.lower() and "invalid" not in result.stderr.lower():
+                            # If it's not an unknown option error, it might have worked or failed for other reasons
+                            # Check if we can now connect
+                            test_cmd = ["meshcli", "-a", address, "infos", "-j"]
+                            test_result = subprocess.run(
+                                test_cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=5.0
+                            )
+                            if test_result.returncode == 0:
+                                print("Pairing successful via meshcli (verified)!")
+                                return True
+                    except subprocess.TimeoutExpired:
+                        continue
+                    except FileNotFoundError:
+                        # meshcli not found, skip to bluetoothctl
+                        break
+                    except Exception as e:
+                        # Try next option
+                        continue
+                
+                print("meshcli pairing options not available, trying bluetoothctl...")
+            except Exception as e:
+                print(f"meshcli pairing attempt failed: {e}, trying bluetoothctl...")
+            
+            # Fallback to bluetoothctl pairing
             # First, remove device if already paired (to allow re-pairing)
             try:
                 remove_cmd = ["bluetoothctl", "remove", address]
