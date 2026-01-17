@@ -15,6 +15,14 @@ from queue import Queue
 from typing import Optional, Tuple, Dict
 from datetime import datetime, timedelta
 
+def _is_running_as_root() -> bool:
+    """Check if the current process is running as root."""
+    try:
+        return os.geteuid() == 0
+    except AttributeError:
+        # Windows or other platform without geteuid
+        return False
+
 
 def _normalize_meshcli_text(value: str) -> str:
     """
@@ -107,8 +115,17 @@ def _ensure_bluetooth_enabled() -> bool:
         if "Powered: no" in output or "PowerState: off" in output:
             print("Bluetooth is powered off. Attempting to power on...")
             
-            # Try to power on Bluetooth (first without sudo)
-            power_cmd = ["bluetoothctl", "power", "on"]
+            # Check if we're already running as root
+            is_root = _is_running_as_root()
+            
+            # Try to power on Bluetooth
+            if is_root:
+                # Already running as root, don't use sudo
+                power_cmd = ["bluetoothctl", "power", "on"]
+            else:
+                # Try without sudo first
+                power_cmd = ["bluetoothctl", "power", "on"]
+            
             power_result = subprocess.run(
                 power_cmd,
                 capture_output=True,
@@ -120,29 +137,78 @@ def _ensure_bluetooth_enabled() -> bool:
                 print("Bluetooth powered on successfully")
                 time.sleep(2)  # Wait for Bluetooth to initialize
             else:
-                # Try with sudo if regular command failed
-                print("Regular command failed, trying with sudo...")
-                sudo_power_cmd = ["sudo", "bluetoothctl", "power", "on"]
-                sudo_power_result = subprocess.run(
-                    sudo_power_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
-                
-                if sudo_power_result.returncode == 0:
-                    print("Bluetooth powered on successfully (with sudo)")
-                    time.sleep(2)  # Wait for Bluetooth to initialize
+                # If not root and regular command failed, try with sudo
+                if not is_root:
+                    print("Regular command failed, trying with sudo...")
+                    sudo_power_cmd = ["sudo", "-n", "bluetoothctl", "power", "on"]  # -n = non-interactive
+                    sudo_power_result = subprocess.run(
+                        sudo_power_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    
+                    if sudo_power_result.returncode == 0:
+                        print("Bluetooth powered on successfully (with sudo)")
+                        time.sleep(2)  # Wait for Bluetooth to initialize
+                    else:
+                        # Show what went wrong
+                        if sudo_power_result.stderr:
+                            print(f"Error: {sudo_power_result.stderr.strip()}")
+                        print("Failed to power on Bluetooth automatically.")
+                        print("Please run manually: sudo bluetoothctl power on")
+                        return False
                 else:
-                    print("Failed to power on Bluetooth automatically.")
-                    print("Please run manually: sudo bluetoothctl power on")
-                    return False
+                    # We're root but it still failed - show detailed error
+                    print(f"Command failed with return code: {power_result.returncode}")
+                    if power_result.stdout:
+                        print(f"stdout: {power_result.stdout.strip()}")
+                    if power_result.stderr:
+                        print(f"stderr: {power_result.stderr.strip()}")
+                    print("Failed to power on Bluetooth (running as root).")
+                    print("Trying alternative method...")
+                    
+                    # Try using systemctl to restart bluetooth service
+                    try:
+                        restart_cmd = ["systemctl", "restart", "bluetooth"]
+                        restart_result = subprocess.run(
+                            restart_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=5.0
+                        )
+                        if restart_result.returncode == 0:
+                            print("Bluetooth service restarted, waiting...")
+                            time.sleep(3)
+                            # Try power on again
+                            power_result2 = subprocess.run(
+                                ["bluetoothctl", "power", "on"],
+                                capture_output=True,
+                                text=True,
+                                timeout=5.0
+                            )
+                            if power_result2.returncode == 0:
+                                print("Bluetooth powered on successfully after restart")
+                                time.sleep(2)
+                            else:
+                                print("Still failed after restart. Please check:")
+                                print("  sudo systemctl status bluetooth")
+                                print("  sudo bluetoothctl power on")
+                                return False
+                        else:
+                            print("Could not restart Bluetooth service")
+                            return False
+                    except Exception as e:
+                        print(f"Error restarting service: {e}")
+                        return False
         
         # Check if it's blocked (may need to unblock with rfkill)
         if "PowerState: off-blocked" in output:
             print("Bluetooth is blocked. Attempting to unblock with rfkill...")
             try:
-                # Try to unblock with rfkill (first without sudo)
+                is_root = _is_running_as_root()
+                
+                # Try to unblock with rfkill
                 unblock_cmd = ["rfkill", "unblock", "bluetooth"]
                 unblock_result = subprocess.run(
                     unblock_cmd,
@@ -153,10 +219,10 @@ def _ensure_bluetooth_enabled() -> bool:
                 if unblock_result.returncode == 0:
                     print("Bluetooth unblocked successfully")
                     time.sleep(1)
-                else:
+                elif not is_root:
                     # Try with sudo
                     print("Regular command failed, trying with sudo...")
-                    sudo_unblock_cmd = ["sudo", "rfkill", "unblock", "bluetooth"]
+                    sudo_unblock_cmd = ["sudo", "-n", "rfkill", "unblock", "bluetooth"]
                     sudo_unblock_result = subprocess.run(
                         sudo_unblock_cmd,
                         capture_output=True,
@@ -170,12 +236,16 @@ def _ensure_bluetooth_enabled() -> bool:
                         print("Could not unblock Bluetooth automatically")
                         print("Please run manually: sudo rfkill unblock bluetooth")
                 
-                # Now try to power on (with or without sudo)
-                power_cmd = ["bluetoothctl", "power", "on"]
-                power_result = subprocess.run(power_cmd, capture_output=True, timeout=5.0)
-                if power_result.returncode != 0:
-                    sudo_power_cmd = ["sudo", "bluetoothctl", "power", "on"]
-                    subprocess.run(sudo_power_cmd, capture_output=True, timeout=5.0)
+                # Now try to power on
+                if is_root:
+                    power_cmd = ["bluetoothctl", "power", "on"]
+                else:
+                    power_cmd = ["bluetoothctl", "power", "on"]
+                
+                power_result = subprocess.run(power_cmd, capture_output=True, text=True, timeout=5.0)
+                if power_result.returncode != 0 and not is_root:
+                    sudo_power_cmd = ["sudo", "-n", "bluetoothctl", "power", "on"]
+                    subprocess.run(sudo_power_cmd, capture_output=True, text=True, timeout=5.0)
                 time.sleep(2)
             except FileNotFoundError:
                 print("rfkill command not found. Please install rfkill or run manually:")
