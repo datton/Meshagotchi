@@ -816,12 +816,31 @@ class MeshHandler:
             except KeyboardInterrupt:
                 raise RuntimeError("Connection cancelled by user")
         
-        # Step 5: Attempt connection
-        if not self._test_ble_connection(address, pairing_code):
+        # Step 5: Attempt connection (pairing is done inside _test_ble_connection if needed)
+        # If pairing_code was provided, pairing should have been done in _pair_ble_device
+        # Now we just need to verify connection works
+        connection_successful = False
+        
+        if pairing_code:
+            # Pairing was already attempted in _pair_ble_device, now test connection
+            print("Verifying connection after pairing...")
+            connection_successful = self._test_ble_connection(address, pairing_code=None)
+        else:
+            # No pairing code, just test connection
+            connection_successful = self._test_ble_connection(address, pairing_code=None)
+        
+        if not connection_successful:
+            print("Connection test failed. Attempting to establish connection...")
+            # Try one more time with a longer wait
+            time.sleep(3)
+            connection_successful = self._test_ble_connection(address, pairing_code=None)
+        
+        if not connection_successful:
             print("Failed to connect to BLE device. Please check:")
             print("  - Device is powered on and in range")
             print("  - Pairing code is correct")
             print("  - Device is not already connected to another system")
+            print("  - Try: meshcli -a", address, "infos")
             raise RuntimeError(f"Failed to connect to BLE device {address}")
         
         # Step 6: Store successful connection
@@ -873,18 +892,31 @@ class MeshHandler:
                         
                         # Check if command succeeded or if it's just an unknown option (we'll try next)
                         if result.returncode == 0:
-                            print("Pairing successful via meshcli!")
-                            time.sleep(2)  # Wait for pairing to complete
-                            return True
-                        elif "unknown" not in result.stderr.lower() and "invalid" not in result.stderr.lower():
-                            # If it's not an unknown option error, it might have worked or failed for other reasons
-                            # Check if we can now connect
+                            print("Pairing/connection successful via meshcli!")
+                            time.sleep(3)  # Wait for connection to stabilize
+                            # Verify connection works
                             test_cmd = ["meshcli", "-a", address, "infos", "-j"]
                             test_result = subprocess.run(
                                 test_cmd,
                                 capture_output=True,
                                 text=True,
-                                timeout=5.0
+                                timeout=10.0
+                            )
+                            if test_result.returncode == 0:
+                                print("Connection verified via meshcli!")
+                                return True
+                            else:
+                                print(f"Pairing succeeded but connection test failed: {test_result.stderr}")
+                        elif "unknown" not in result.stderr.lower() and "invalid" not in result.stderr.lower() and "error" not in result.stderr.lower():
+                            # If it's not an unknown option error, it might have worked or failed for other reasons
+                            # Check if we can now connect
+                            time.sleep(2)
+                            test_cmd = ["meshcli", "-a", address, "infos", "-j"]
+                            test_result = subprocess.run(
+                                test_cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=10.0
                             )
                             if test_result.returncode == 0:
                                 print("Pairing successful via meshcli (verified)!")
@@ -1191,30 +1223,29 @@ expect {{
     
     def _test_ble_connection(self, address: str, pairing_code: Optional[str] = None) -> bool:
         """
-        Test BLE connection to a device.
+        Test BLE connection to a device using meshcli.
         
         Args:
             address: BLE MAC address
             pairing_code: Optional pairing code (will be used to pair if provided)
+                          Note: Pairing should be done separately via _pair_ble_device
         
         Returns:
             True if connection successful, False otherwise
         """
         try:
-            # If pairing code is provided, pair the device first
-            if pairing_code:
-                if not self._pair_ble_device(address, pairing_code):
-                    print("Failed to pair device. Connection test will likely fail.")
-                    # Continue anyway to test connection
+            # Note: pairing_code parameter is kept for backward compatibility
+            # but pairing should be done via _pair_ble_device before calling this
             
-            # Try a simple command to test connection
-            # Use meshcli -a <address> with a lightweight command
+            # Try to connect/establish connection using meshcli
+            # First try a simple command with longer timeout for initial connection
+            print(f"Testing connection to {address}...")
             cmd = ["meshcli", "-a", address, "infos", "-j"]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=5.0
+                timeout=15.0  # Longer timeout for initial connection
             )
             
             if result.returncode == 0:
@@ -1223,6 +1254,7 @@ expect {{
                 if output:
                     # Check if output contains expected MeshCore data
                     if "{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
+                        print("Connection successful!")
                         return True
             
             # If connection failed, show error details
@@ -1231,10 +1263,40 @@ expect {{
             if result.stdout:
                 print(f"Connection output: {result.stdout.strip()}")
             
+            # Try alternative: maybe we need to explicitly connect first
+            print("Trying explicit connect command...")
+            connect_cmds = [
+                ["meshcli", "-a", address, "connect"],
+                ["meshcli", "-a", address, "open"],
+            ]
+            
+            for connect_cmd in connect_cmds:
+                try:
+                    connect_result = subprocess.run(
+                        connect_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10.0
+                    )
+                    if connect_result.returncode == 0:
+                        time.sleep(2)
+                        # Now try infos again
+                        test_result = subprocess.run(
+                            ["meshcli", "-a", address, "infos", "-j"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10.0
+                        )
+                        if test_result.returncode == 0:
+                            print("Connection successful after explicit connect!")
+                            return True
+                except Exception:
+                    continue
+            
             return False
             
         except subprocess.TimeoutExpired:
-            print("Connection test timed out")
+            print("Connection test timed out - device may need more time to connect")
             return False
         except Exception as e:
             print(f"Error testing BLE connection: {e}")
