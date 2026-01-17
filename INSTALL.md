@@ -167,17 +167,62 @@ python3 --version
 
 ### Install Dependencies
 
-MeshAgotchi requires one external package for BLE scanning:
+MeshAgotchi requires one external package for BLE scanning: **Bleak**
+
+#### Option 1: Install with Virtual Environment (Recommended)
 
 ```bash
-# Install Bleak for BLE device scanning (recommended)
-pip3 install bleak
+# Navigate to MeshAgotchi directory
+cd ~/Meshagotchi
+
+# Create a virtual environment
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Upgrade pip (recommended)
+pip install --upgrade pip
+
+# Install Bleak
+pip install bleak
 
 # Or install from requirements file
-pip3 install -r requirements.txt
+pip install -r requirements.txt
+
+# Verify installation
+python3 -c "import bleak; print('Bleak installed successfully')"
+
+# Deactivate virtual environment when done (optional)
+# deactivate
+```
+
+**To run MeshAgotchi with the virtual environment:**
+```bash
+# Activate the virtual environment first
+source venv/bin/activate
+
+# Then run MeshAgotchi
+python3 main.py
+
+# The virtual environment will remain active in your current terminal session
+```
+
+#### Option 2: Install System-Wide (Alternative)
+
+```bash
+# Install Bleak system-wide (requires sudo)
+sudo pip3 install bleak
+
+# Or install from requirements file
+sudo pip3 install -r requirements.txt
 ```
 
 **Note**: Bleak is the modern standard for BLE operations on Linux/Raspberry Pi. If Bleak is not installed, MeshAgotchi will fall back to using `meshcli -l` or `bluetoothctl` for device scanning, but Bleak is recommended for better reliability.
+
+**For systemd service**: If running as a systemd service, you'll need to either:
+- Install Bleak system-wide (Option 2), or
+- Modify the service file to activate the virtual environment before running
 
 ### Test Installation
 
@@ -271,6 +316,29 @@ sudo nano /etc/systemd/system/meshagotchi.service
 ```
 
 Add the following content (adjust paths as needed):
+
+**If using virtual environment**, use this service file:
+
+```ini
+[Unit]
+Description=MeshAgotchi Virtual Pet Game Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=meshogotchi
+WorkingDirectory=/home/meshagotchi/Meshagotchi
+ExecStart=/home/meshagotchi/Meshagotchi/venv/bin/python3 /home/meshagotchi/Meshagotchi/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**If using system-wide installation**, use this service file:
 
 ```ini
 [Unit]
