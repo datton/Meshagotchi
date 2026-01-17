@@ -817,22 +817,30 @@ class MeshHandler:
                 raise RuntimeError("Connection cancelled by user")
         
         # Step 5: Pair device if pairing code provided
+        pairing_successful = False
         if pairing_code:
             print("Pairing with device...")
-            if not self._pair_ble_device(address, pairing_code):
-                print("Warning: Pairing may have failed, but continuing with connection attempt...")
-            else:
+            pairing_successful = self._pair_ble_device(address, pairing_code)
+            if pairing_successful:
                 print("Pairing successful! Waiting for connection to stabilize...")
-                time.sleep(3)  # Wait for connection to stabilize after pairing
+                time.sleep(2)  # Wait for connection to stabilize after pairing
+            else:
+                print("Warning: Pairing may have failed, but continuing with connection attempt...")
         
         # Step 6: Test connection using meshcli
         print("Testing connection...")
         connection_successful = self._test_ble_connection(address, pairing_code=None)
         
+        # If pairing succeeded but connection test failed, wait a bit more and retry
+        if not connection_successful and pairing_successful:
+            print("Connection test failed after pairing. Waiting a bit longer and retrying...")
+            time.sleep(3)
+            connection_successful = self._test_ble_connection(address, pairing_code=None)
+        
+        # If still not connected, try one more time
         if not connection_successful:
             print("Connection test failed. Attempting to establish connection...")
-            # Try one more time with a longer wait
-            time.sleep(3)
+            time.sleep(2)
             connection_successful = self._test_ble_connection(address, pairing_code=None)
         
         if not connection_successful:
@@ -887,42 +895,37 @@ class MeshHandler:
                             cmd,
                             capture_output=True,
                             text=True,
-                            timeout=10.0  # Reduced timeout to avoid hanging
+                            timeout=8.0  # Reduced timeout to avoid hanging
                         )
                         
                         # Check if command succeeded
                         if result.returncode == 0:
                             print("Pairing/connection successful via meshcli!")
-                            time.sleep(2)  # Wait for connection to stabilize
-                            # Verify connection works (with shorter timeout)
-                            test_cmd = ["meshcli", "-a", address, "infos", "-j"]
-                            test_result = subprocess.run(
-                                test_cmd,
-                                capture_output=True,
-                                text=True,
-                                timeout=5.0  # Shorter timeout for verification
-                            )
-                            if test_result.returncode == 0:
-                                print("Connection verified via meshcli!")
-                                return True
-                            else:
-                                # Even if verification fails, if pairing returned 0, consider it successful
-                                # The connection might just need a moment
-                                print("Pairing succeeded, connection will be verified later")
-                                return True
+                            # Don't verify immediately - just return success
+                            # Verification will happen in _test_ble_connection
+                            return True
                         elif "unknown" not in result.stderr.lower() and "invalid" not in result.stderr.lower() and "error" not in result.stderr.lower():
-                            # If it's not an unknown option error, check if we can connect
-                            time.sleep(1)
-                            test_cmd = ["meshcli", "-a", address, "infos", "-j"]
-                            test_result = subprocess.run(
-                                test_cmd,
-                                capture_output=True,
-                                text=True,
-                                timeout=5.0
-                            )
-                            if test_result.returncode == 0:
-                                print("Pairing successful via meshcli (verified)!")
+                            # If it's not an unknown option error, might have worked
+                            # Try a quick verification (but don't wait long)
+                            try:
+                                test_cmd = ["meshcli", "-a", address, "infos", "-j"]
+                                test_result = subprocess.run(
+                                    test_cmd,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=3.0  # Very short timeout
+                                )
+                                if test_result.returncode == 0:
+                                    print("Pairing successful via meshcli (verified)!")
+                                    return True
+                            except subprocess.TimeoutExpired:
+                                # Verification timed out, but pairing might have worked
+                                # Return True anyway - verification will happen later
+                                print("Pairing appears successful (verification timed out, will retry later)")
                                 return True
+                            except Exception:
+                                # Verification failed, but continue to next option
+                                pass
                         # If we get here and it's an unknown option, continue to next option
                         # If it's a different error, also continue (might be device-specific)
                     except subprocess.TimeoutExpired:
