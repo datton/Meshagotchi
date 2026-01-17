@@ -777,77 +777,170 @@ class MeshHandler:
             try:
                 # Start bluetoothctl in interactive mode
                 child = pexpect.spawn("bluetoothctl", encoding='utf-8', timeout=30)
-                child.logfile_read = None  # Don't log everything
+                # Enable logging for debugging (comment out in production)
+                # import sys
+                # child.logfile_read = sys.stdout
                 
-                # Wait for prompt
-                child.expect(["# ", "bluetooth"])
+                # Wait for initial prompt
+                child.expect([r"\[bluetooth\]#", "# ", "bluetooth"], timeout=5)
                 time.sleep(0.5)
                 
-                # Remove device if exists
+                # Remove device if exists (to allow re-pairing)
                 child.sendline(f"remove {address}")
-                child.expect(["Device", "not available", "# "], timeout=5)
+                child.expect([r"Device.*removed", r"not available", r"\[bluetooth\]#", "# "], timeout=5)
                 time.sleep(1)
                 
                 # Scan for device
                 child.sendline("scan on")
-                child.expect(["Discovery started", "# "], timeout=5)
+                child.expect([r"Discovery started", r"\[bluetooth\]#", "# "], timeout=5)
                 time.sleep(3)  # Wait for device to be discovered
                 
                 # Pair with device
                 child.sendline(f"pair {address}")
-                index = child.expect([
-                    "Attempting to pair",
-                    "PIN code",
-                    "Enter PIN",
-                    "Pairing successful",
-                    "Failed to pair",
-                    "# "
-                ], timeout=15)
                 
-                # If PIN prompt appears, send the pairing code
-                if index in [1, 2]:  # PIN code or Enter PIN
-                    time.sleep(0.5)
-                    child.sendline(pairing_code)
-                    index = child.expect([
-                        "Pairing successful",
-                        "Failed to pair",
-                        "Authentication",
-                        "# "
-                    ], timeout=15)
-                    
-                    if index == 0:  # Pairing successful
-                        print("Pairing successful")
-                        # Trust the device
-                        child.sendline(f"trust {address}")
-                        child.expect(["trust succeeded", "# "], timeout=5)
-                        child.sendline("quit")
-                        child.close()
-                        time.sleep(2)  # Wait for pairing to complete
-                        return True
-                    else:
-                        print(f"Pairing failed: {child.before}")
-                        child.sendline("quit")
-                        child.close()
+                # Wait for response - could be immediate success, PIN prompt, or error
+                # We'll use a more flexible pattern matching approach
+                while True:
+                    try:
+                        index = child.expect([
+                            r"Attempting to pair",
+                            r"Request PIN code",
+                            r"Enter PIN code",
+                            r"PIN code",
+                            r"\[agent\] Enter PIN code",
+                            r"\[agent\] PIN code",
+                            r"\[agent\] Request PIN code",
+                            r"Pairing successful",
+                            r"Failed to pair",
+                            r"Already paired",
+                            r"Connection successful",
+                            r"\[bluetooth\]#",
+                            "# ",
+                            pexpect.EOF,
+                            pexpect.TIMEOUT
+                        ], timeout=20)
+                        
+                        # Handle different responses
+                        if index == 0:  # "Attempting to pair" - wait for next message
+                            continue
+                        elif index in [1, 2, 3, 4, 5, 6]:  # PIN prompt variants
+                            print(f"PIN prompt detected. Sending pairing code: {pairing_code}")
+                            time.sleep(0.3)
+                            child.sendline(pairing_code)
+                            
+                            # Wait for pairing result after sending PIN
+                            result_index = child.expect([
+                                r"Pairing successful",
+                                r"Failed to pair",
+                                r"Authentication.*failed",
+                                r"Connection.*failed",
+                                r"\[bluetooth\]#",
+                                "# ",
+                                pexpect.TIMEOUT
+                            ], timeout=15)
+                            
+                            if result_index == 0:  # Pairing successful
+                                print("Pairing successful!")
+                                time.sleep(1)
+                                # Trust the device
+                                child.sendline(f"trust {address}")
+                                child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
+                                child.sendline("scan off")
+                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                                child.sendline("quit")
+                                child.close()
+                                time.sleep(2)
+                                return True
+                            else:
+                                error_msg = child.before + (child.after if hasattr(child, 'after') else "")
+                                print(f"Pairing failed after PIN entry: {error_msg}")
+                                child.sendline("scan off")
+                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                                child.sendline("quit")
+                                child.close()
+                                return False
+                        elif index in [7, 10]:  # Pairing successful or Connection successful
+                            print("Pairing successful (no PIN required)")
+                            time.sleep(1)
+                            # Trust the device
+                            child.sendline(f"trust {address}")
+                            child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
+                            child.sendline("scan off")
+                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                            child.sendline("quit")
+                            child.close()
+                            time.sleep(2)
+                            return True
+                        elif index == 9:  # Already paired
+                            print("Device already paired")
+                            # Trust the device anyway
+                            child.sendline(f"trust {address}")
+                            child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
+                            child.sendline("scan off")
+                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                            child.sendline("quit")
+                            child.close()
+                            time.sleep(1)
+                            return True
+                        elif index == 8:  # Failed to pair
+                            error_msg = child.before + (child.after if hasattr(child, 'after') else "")
+                            print(f"Pairing failed: {error_msg}")
+                            child.sendline("scan off")
+                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                            child.sendline("quit")
+                            child.close()
+                            return False
+                        elif index in [11, 12]:  # Prompt returned (might be success or failure)
+                            # Check if we're back at prompt - might mean pairing completed
+                            output = child.before
+                            if "successful" in output.lower() or "paired" in output.lower():
+                                print("Pairing appears successful")
+                                child.sendline(f"trust {address}")
+                                child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
+                                child.sendline("scan off")
+                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                                child.sendline("quit")
+                                child.close()
+                                time.sleep(1)
+                                return True
+                            else:
+                                error_msg = output
+                                print(f"Pairing result unclear: {error_msg}")
+                                child.sendline("scan off")
+                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
+                                child.sendline("quit")
+                                child.close()
+                                return False
+                        elif index in [13, 14]:  # EOF or TIMEOUT
+                            print("Pairing process ended unexpectedly or timed out")
+                            try:
+                                child.sendline("scan off")
+                                child.sendline("quit")
+                                child.close()
+                            except Exception:
+                                pass
+                            return False
+                    except pexpect.EOF:
+                        print("Pairing process ended (EOF)")
+                        try:
+                            child.close()
+                        except Exception:
+                            pass
                         return False
-                elif index == 3:  # Pairing successful (no PIN needed)
-                    print("Pairing successful (no PIN required)")
-                    # Trust the device
-                    child.sendline(f"trust {address}")
-                    child.expect(["trust succeeded", "# "], timeout=5)
-                    child.sendline("quit")
-                    child.close()
-                    time.sleep(2)
-                    return True
-                else:
-                    # Pairing might have failed or completed
-                    print(f"Pairing result unclear: {child.before}")
-                    child.sendline("quit")
-                    child.close()
-                    return False
+                    except pexpect.TIMEOUT:
+                        print("Pairing timed out waiting for response")
+                        try:
+                            child.sendline("scan off")
+                            child.sendline("quit")
+                            child.close()
+                        except Exception:
+                            pass
+                        return False
                     
             except pexpect.TIMEOUT:
                 print("Pairing timed out")
                 try:
+                    child.sendline("scan off")
                     child.sendline("quit")
                     child.close()
                 except Exception:
@@ -855,9 +948,19 @@ class MeshHandler:
                 return False
             except pexpect.EOF:
                 print("Pairing process ended unexpectedly")
+                try:
+                    child.close()
+                except Exception:
+                    pass
                 return False
             except Exception as e:
                 print(f"Error during pairing: {e}")
+                try:
+                    child.sendline("scan off")
+                    child.sendline("quit")
+                    child.close()
+                except Exception:
+                    pass
                 return False
                 
         except Exception as e:
