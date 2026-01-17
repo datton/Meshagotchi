@@ -411,35 +411,71 @@ async def _scan_ble_devices_async() -> List[Dict]:
     Scan for available BLE MeshCore devices using Bleak.
     
     Returns:
-        List of dictionaries with 'address' and 'name' keys
+        List of dictionaries with 'address', 'name', and 'rssi' keys
     """
-    devices = []
+    devices_dict = {}  # Use dict to track latest RSSI per device
     
     if not BLEAK_AVAILABLE:
-        return devices
+        return []
     
     try:
         print("Scanning for BLE devices with Bleak...")
-        scanner = BleakScanner()
-        discovered_devices = await scanner.discover(timeout=10.0)
         
-        for device in discovered_devices:
-            # Filter for devices that might be MeshCore (you can adjust this filter)
-            # MeshCore devices often have specific name patterns or service UUIDs
+        def detection_callback(device, advertisement_data):
+            """Callback to capture devices with RSSI as they're discovered."""
             name = device.name or "Unknown"
             address = device.address
             
-            # Add all discovered devices, or filter by name pattern if needed
-            # For now, we'll include all devices and let the user choose
-            devices.append({
-                'address': address,
-                'name': name
-            })
+            # Get RSSI from advertisement data
+            rssi = None
+            if hasattr(advertisement_data, 'rssi'):
+                rssi = advertisement_data.rssi
+            elif hasattr(device, 'rssi'):
+                rssi = device.rssi
+            
+            # Store/update device info (keep latest RSSI if device seen multiple times)
+            if address not in devices_dict or (rssi is not None and devices_dict[address].get('rssi') is None):
+                devices_dict[address] = {
+                    'address': address,
+                    'name': name,
+                    'rssi': rssi
+                }
+            elif rssi is not None:
+                # Update RSSI if we have a newer reading
+                devices_dict[address]['rssi'] = rssi
+                devices_dict[address]['name'] = name  # Update name in case it changed
         
+        scanner = BleakScanner(detection_callback=detection_callback)
+        await scanner.start()
+        await asyncio.sleep(10.0)  # Scan for 10 seconds
+        await scanner.stop()
+        
+        # Convert dict to list
+        devices = list(devices_dict.values())
         print(f"Found {len(devices)} BLE device(s)")
         
     except Exception as e:
         print(f"Error scanning with Bleak: {e}")
+        # Fallback to simple discover if callback method fails
+        try:
+            scanner = BleakScanner()
+            discovered_devices = await scanner.discover(timeout=10.0)
+            devices = []
+            for device in discovered_devices:
+                name = device.name or "Unknown"
+                address = device.address
+                rssi = None
+                if hasattr(device, 'rssi'):
+                    rssi = device.rssi
+                devices.append({
+                    'address': address,
+                    'name': name,
+                    'rssi': rssi
+                })
+            print(f"Found {len(devices)} BLE device(s) (fallback method)")
+        except Exception as e2:
+            print(f"Fallback scan also failed: {e2}")
+            devices = []
     
     return devices
 
@@ -451,7 +487,7 @@ def _scan_ble_devices() -> list:
     Uses Bleak if available (recommended), falls back to meshcli -l or bluetoothctl.
     
     Returns:
-        List of dictionaries with 'address' and 'name' keys, or empty list if none found
+        List of dictionaries with 'address', 'name', and optionally 'rssi' keys, or empty list if none found
     """
     devices = []
     
@@ -490,7 +526,8 @@ def _scan_ble_devices() -> list:
                         if 'address' in parsed:
                             devices.append({
                                 'address': parsed['address'],
-                                'name': parsed.get('name', 'Unknown')
+                                'name': parsed.get('name', 'Unknown'),
+                                'rssi': parsed.get('rssi')  # RSSI if available in JSON
                             })
                         continue
                     except json.JSONDecodeError:
@@ -505,7 +542,8 @@ def _scan_ble_devices() -> list:
                     name = re.sub(r'^\s*[-:]\s*', '', name_part).strip() or 'Unknown'
                     devices.append({
                         'address': address,
-                        'name': name
+                        'name': name,
+                        'rssi': None  # meshcli -l doesn't provide RSSI
                     })
         
     except subprocess.TimeoutExpired:
@@ -540,9 +578,29 @@ def _scan_ble_devices() -> list:
                         address = match.group(1).upper()
                         name_part = line[match.end():].strip()
                         name = name_part or 'Unknown'
+                        
+                        # Try to get RSSI from bluetoothctl info
+                        rssi = None
+                        try:
+                            info_cmd = ["bluetoothctl", "info", address]
+                            info_result = subprocess.run(
+                                info_cmd,
+                                capture_output=True,
+                                text=True,
+                                timeout=3.0
+                            )
+                            if info_result.returncode == 0:
+                                # Look for RSSI in info output
+                                rssi_match = re.search(r'RSSI:\s*(-?\d+)', info_result.stdout)
+                                if rssi_match:
+                                    rssi = int(rssi_match.group(1))
+                        except Exception:
+                            pass  # RSSI not available, continue without it
+                        
                         devices.append({
                             'address': address,
-                            'name': name
+                            'name': name,
+                            'rssi': rssi
                         })
         except Exception as e:
             print(f"Error scanning with bluetoothctl: {e}")
@@ -552,10 +610,10 @@ def _scan_ble_devices() -> list:
 
 def _select_ble_device_interactive(devices: list) -> Optional[Dict]:
     """
-    Display numbered list of BLE devices and prompt user for selection.
+    Display numbered list of BLE devices with signal strength and prompt user for selection.
     
     Args:
-        devices: List of device dicts with 'address' and 'name' keys
+        devices: List of device dicts with 'address', 'name', and optionally 'rssi' keys
     
     Returns:
         Selected device dict or None if cancelled
@@ -564,11 +622,38 @@ def _select_ble_device_interactive(devices: list) -> Optional[Dict]:
         print("No BLE devices found. Please ensure your MeshCore radio is powered on and in range.")
         return None
     
+    # Sort devices by RSSI (strongest signal first), then by name
+    # Devices with RSSI come first, then devices without RSSI
+    def sort_key(device):
+        rssi = device.get('rssi')
+        if rssi is not None:
+            return (0, -rssi)  # Negative for descending order
+        else:
+            return (1, device.get('name', '').lower())
+    
+    sorted_devices = sorted(devices, key=sort_key)
+    
     print("\nAvailable BLE devices:")
-    for i, device in enumerate(devices, 1):
+    for i, device in enumerate(sorted_devices, 1):
         name = device.get('name', 'Unknown')
         address = device.get('address', 'Unknown')
-        print(f"  {i} - {name} ({address})")
+        rssi = device.get('rssi')
+        
+        if rssi is not None:
+            # Format RSSI with signal strength indicator
+            if rssi >= -50:
+                strength = "Excellent"
+            elif rssi >= -60:
+                strength = "Very Good"
+            elif rssi >= -70:
+                strength = "Good"
+            elif rssi >= -80:
+                strength = "Fair"
+            else:
+                strength = "Weak"
+            print(f"  {i} - {name} ({address}) - {rssi} dBm ({strength})")
+        else:
+            print(f"  {i} - {name} ({address}) - Signal strength unknown")
     
     while True:
         try:
@@ -577,10 +662,10 @@ def _select_ble_device_interactive(devices: list) -> Optional[Dict]:
                 return None
             
             index = int(choice) - 1
-            if 0 <= index < len(devices):
-                return devices[index]
+            if 0 <= index < len(sorted_devices):
+                return sorted_devices[index]
             else:
-                print(f"Invalid selection. Please enter a number between 1 and {len(devices)}")
+                print(f"Invalid selection. Please enter a number between 1 and {len(sorted_devices)}")
         except ValueError:
             print("Invalid input. Please enter a number or 'q' to quit.")
         except KeyboardInterrupt:
@@ -701,7 +786,7 @@ class MeshHandler:
                     if re.match(mac_pattern, manual_input):
                         address = manual_input.upper()
                         name = input("Enter device name (or press Enter for 'Unknown'): ").strip() or 'Unknown'
-                        devices = [{'address': address, 'name': name}]
+                        devices = [{'address': address, 'name': name, 'rssi': None}]
                         break
                     else:
                         print("Invalid MAC address format. Please use format: XX:XX:XX:XX:XX:XX")
