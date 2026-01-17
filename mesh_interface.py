@@ -10,6 +10,8 @@ import time
 import re
 import json
 import unicodedata
+import glob
+import os
 from queue import Queue
 from typing import Optional, Tuple, Dict
 from datetime import datetime, timedelta
@@ -79,6 +81,102 @@ def _normalize_contact_name(value: str) -> str:
     return normalized
 
 
+def _probe_meshcore_device() -> Optional[str]:
+    """
+    Probe all /dev/ttyUSB* devices to find a MeshCore radio.
+    
+    Tests each device by attempting to communicate with it using meshcli.
+    Returns the first device that successfully responds to meshcli commands.
+    
+    Returns:
+        Path to first MeshCore radio device found (e.g., "/dev/ttyUSB1"),
+        or None if no MeshCore radio is detected.
+    """
+    try:
+        # Find all ttyUSB devices
+        devices = glob.glob("/dev/ttyUSB*")
+        
+        if not devices:
+            print("No /dev/ttyUSB* devices found for probing")
+            return None
+        
+        # Sort devices numerically (ttyUSB0 before ttyUSB1, etc.)
+        def sort_key(device_path):
+            # Extract number from /dev/ttyUSB<N>
+            match = re.search(r'ttyUSB(\d+)', device_path)
+            if match:
+                return int(match.group(1))
+            return 999  # Put non-matching devices at end
+        
+        devices.sort(key=sort_key)
+        
+        print(f"Probing {len(devices)} ttyUSB device(s) for MeshCore radio...")
+        
+        # Test each device
+        for device in devices:
+            print(f"  Probing {device}...", end=" ", flush=True)
+            
+            try:
+                # Test device by running meshcli infos command with JSON output
+                # This is a lightweight command that should work on any MeshCore radio
+                cmd = ["meshcli", "-s", device, "infos", "-j"]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3.0  # 3 second timeout per device
+                )
+                
+                # Check if command succeeded and returned valid output
+                if result.returncode == 0 and result.stdout.strip():
+                    # Try to parse JSON to verify it's actually a MeshCore device
+                    output = result.stdout.strip()
+                    
+                    # Extract JSON from output (may have preamble)
+                    json_start = output.find("{")
+                    if json_start != -1:
+                        json_str = output[json_start:]
+                        try:
+                            parsed = json.loads(json_str)
+                            # If we got valid JSON, it's likely a MeshCore device
+                            if isinstance(parsed, dict):
+                                print(f"✓ Found MeshCore radio")
+                                return device
+                        except json.JSONDecodeError:
+                            # Not JSON, but command succeeded - might still be MeshCore
+                            # Check for recognizable MeshCore output patterns
+                            if any(keyword in output.lower() for keyword in ["radio_freq", "radio_bw", "name", "public_key"]):
+                                print(f"✓ Found MeshCore radio")
+                                return device
+                    else:
+                        # No JSON found, but command succeeded
+                        # Check for recognizable MeshCore patterns in text output
+                        if any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
+                            print(f"✓ Found MeshCore radio")
+                            return device
+                
+                # Command failed or no valid output
+                print("✗ Not a MeshCore radio")
+                
+            except subprocess.TimeoutExpired:
+                print("✗ Timeout (not responding)")
+            except FileNotFoundError:
+                print("✗ meshcli command not found")
+                # If meshcli isn't found, we can't probe - return None
+                return None
+            except PermissionError:
+                print("✗ Permission denied")
+            except Exception as e:
+                print(f"✗ Error: {e}")
+        
+        print("No MeshCore radio found on any ttyUSB device")
+        return None
+        
+    except Exception as e:
+        print(f"Error during device probing: {e}")
+        return None
+
+
 class MeshHandler:
     """
     Handles all MeshCore CLI communication with rate limiting.
@@ -114,17 +212,21 @@ class MeshHandler:
         
         # Auto-detect serial port if not specified
         if serial_port is None:
-            import os
             # Check environment variable first
             serial_port = os.environ.get("MESHCLI_SERIAL_PORT")
             
-            # If still None, try to auto-detect /dev/ttyUSB0
+            # If still None, probe for MeshCore radio on ttyUSB devices
             if serial_port is None:
-                import os.path
+                serial_port = _probe_meshcore_device()
+            
+            # If probing didn't find a device, fall back to checking common device paths
+            if serial_port is None:
                 if os.path.exists("/dev/ttyUSB0"):
                     serial_port = "/dev/ttyUSB0"
+                    print("Using /dev/ttyUSB0 (fallback - not verified as MeshCore radio)")
                 elif os.path.exists("/dev/ttyACM0"):
                     serial_port = "/dev/ttyACM0"
+                    print("Using /dev/ttyACM0 (fallback - not verified as MeshCore radio)")
         
         self.serial_port = serial_port  # e.g., "/dev/ttyUSB0" or None if auto-detected
         self.friends = set()  # Track discovered nodes as friends
