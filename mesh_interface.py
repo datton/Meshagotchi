@@ -286,14 +286,30 @@ def _ensure_bluetooth_enabled() -> bool:
                                 print("Bluetooth powered on successfully after restart")
                                 time.sleep(2)
                             else:
-                    print("Still failed after restart.")
-                    print("\nTroubleshooting steps:")
-                    print("  1. Check Bluetooth service: sudo systemctl status bluetooth")
-                    print("  2. Check if hardware is blocked: rfkill list bluetooth")
-                    print("  3. Unblock if needed: sudo rfkill unblock bluetooth")
-                    print("  4. Restart service: sudo systemctl restart bluetooth")
-                    print("  5. Try power on: sudo bluetoothctl power on")
-                    return False
+                                # Check for specific error messages
+                                error_output = (power_result2.stderr or power_result2.stdout or "").strip()
+                                if "org.bluez.Error.Failed" in error_output:
+                                    print("Got org.bluez.Error.Failed - Bluetooth may be blocked or hardware issue")
+                                    print("Checking rfkill status...")
+                                    # Check rfkill again
+                                    rfkill_cmd = ["rfkill", "list", "bluetooth"]
+                                    rfkill_result = subprocess.run(
+                                        rfkill_cmd,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=5.0
+                                    )
+                                    if rfkill_result.returncode == 0:
+                                        print(rfkill_result.stdout)
+                                
+                                print("Still failed after restart.")
+                                print("\nTroubleshooting steps:")
+                                print("  1. Check Bluetooth service: sudo systemctl status bluetooth")
+                                print("  2. Check if hardware is blocked: rfkill list bluetooth")
+                                print("  3. Unblock if needed: sudo rfkill unblock bluetooth")
+                                print("  4. Restart service: sudo systemctl restart bluetooth")
+                                print("  5. Try power on: sudo bluetoothctl power on")
+                                return False
                         else:
                             print("Could not restart Bluetooth service")
                             return False
