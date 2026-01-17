@@ -181,20 +181,43 @@ python3 -m venv venv
 # Activate the virtual environment
 source venv/bin/activate
 
-# Upgrade pip (recommended)
-pip install --upgrade pip
+# Verify you're using the venv's pip (should show path to venv/bin/pip)
+which pip
+# Should output: /home/meshagotchi/Meshagotchi/venv/bin/pip
 
-# Install Bleak
-pip install bleak
+# If it shows /usr/bin/pip, the venv isn't activated properly
+# Try: source venv/bin/activate again
+
+# Upgrade pip (recommended)
+python3 -m pip install --upgrade pip
+
+# Install Bleak using python3 -m pip (more reliable)
+python3 -m pip install bleak
 
 # Or install from requirements file
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # Verify installation
 python3 -c "import bleak; print('Bleak installed successfully')"
 
 # Deactivate virtual environment when done (optional)
 # deactivate
+```
+
+**Troubleshooting venv activation:**
+If you get "externally-managed-environment" error even in venv:
+```bash
+# Make sure venv is activated (you should see (venv) in prompt)
+source venv/bin/activate
+
+# Verify which pip you're using
+which pip
+which python3
+
+# Both should point to venv/bin/ directory
+
+# Use python3 -m pip instead of just pip
+python3 -m pip install bleak
 ```
 
 **To run MeshAgotchi with the virtual environment:**
