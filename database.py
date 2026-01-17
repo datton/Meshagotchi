@@ -68,6 +68,17 @@ def init_database():
         )
     """)
     
+    # BLE devices table - stores successfully connected BLE devices
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ble_devices (
+            address TEXT PRIMARY KEY,
+            name TEXT,
+            pairing_code TEXT,
+            last_connected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     conn.commit()
     conn.close()
 
@@ -342,6 +353,104 @@ def get_all_contacts() -> List[Dict[str, Any]]:
     conn.close()
     
     return [dict(row) for row in rows]
+
+
+def store_ble_device(address: str, name: str, pairing_code: Optional[str] = None):
+    """
+    Store or update a BLE device connection info.
+    
+    Args:
+        address: BLE MAC address (e.g., "C2:2B:A1:D5:3E:B6")
+        name: Device name/advertisement name
+        pairing_code: Pairing code (if provided)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    address = address.strip().upper()
+    name = name.strip() if name else None
+    
+    if not address:
+        conn.close()
+        return
+    
+    now = datetime.datetime.now().isoformat()
+    
+    # Check if device already exists
+    cursor.execute("SELECT address FROM ble_devices WHERE address = ?", (address,))
+    exists = cursor.fetchone()
+    
+    if exists:
+        # Update existing device
+        if pairing_code:
+            cursor.execute("""
+                UPDATE ble_devices 
+                SET name = ?, pairing_code = ?, last_connected = ?
+                WHERE address = ?
+            """, (name, pairing_code, now, address))
+        else:
+            cursor.execute("""
+                UPDATE ble_devices 
+                SET name = ?, last_connected = ?
+                WHERE address = ?
+            """, (name, now, address))
+    else:
+        # Insert new device
+        cursor.execute("""
+            INSERT INTO ble_devices (address, name, pairing_code, last_connected, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (address, name, pairing_code, now, now))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_stored_ble_device() -> Optional[Dict[str, Any]]:
+    """
+    Get the most recently connected BLE device.
+    
+    Returns:
+        Dictionary with device info (address, name, pairing_code) or None if not found
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT address, name, pairing_code, last_connected 
+        FROM ble_devices 
+        ORDER BY last_connected DESC 
+        LIMIT 1
+    """)
+    row = cursor.fetchone()
+    
+    conn.close()
+    
+    if row:
+        return dict(row)
+    return None
+
+
+def update_ble_device_connection(address: str):
+    """
+    Update the last_connected timestamp for a BLE device.
+    
+    Args:
+        address: BLE MAC address
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    address = address.strip().upper()
+    now = datetime.datetime.now().isoformat()
+    
+    cursor.execute("""
+        UPDATE ble_devices 
+        SET last_connected = ?
+        WHERE address = ?
+    """, (now, address))
+    
+    conn.commit()
+    conn.close()
 
 
 if __name__ == "__main__":

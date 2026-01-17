@@ -43,15 +43,10 @@ class MeshAgotchiDaemon:
         # Initialize database
         database.init_database()
         
-        # Create MeshHandler
-        # If your device is at /dev/ttyUSB0, pass serial_port="/dev/ttyUSB0"
-        # If meshcli auto-detects, you can leave it as None
-        import os
-        serial_port = os.getenv("MESHCLI_SERIAL_PORT", None)  # e.g., "/dev/ttyUSB0"
+        # Create MeshHandler (will connect via BLE)
         self.mesh_handler = mesh_interface.MeshHandler(
             min_send_interval=2.0,
-            max_message_length=200,
-            serial_port=serial_port
+            max_message_length=200
         )
         
         # Initialize and configure radio

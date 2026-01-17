@@ -44,7 +44,7 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 ## Hardware Requirements
 
 - **Raspberry Pi**: Any model (Pi 3, Pi 4, Pi Zero 2W, or newer recommended)
-- **Heltec V3 LoRa Radio**: Connected via USB Serial
+- **Heltec V3 LoRa Radio**: Connected via BLE (Bluetooth Low Energy)
 - **MicroSD Card**: Minimum 8GB (16GB+ recommended)
 - **Power Supply**: Official Raspberry Pi power adapter
 
@@ -77,9 +77,6 @@ source venv/bin/activate
 pip install meshcore
 pip install .
 
-# Configure serial port (if needed)
-export MESHCLI_SERIAL_PORT=/dev/ttyUSB0
-
 # Run MeshAgotchi
 cd ~/Meshagotchi
 python3 main.py
@@ -93,12 +90,8 @@ MeshAgotchi can run as a systemd service for automatic startup. See [INSTALL.md]
 
 ### Starting the Game
 
-1. Ensure your Heltec V3 radio is connected via USB
-2. Set the serial port environment variable (if needed):
-   ```bash
-   export MESHCLI_SERIAL_PORT=/dev/ttyUSB0
-   ```
-3. Run the daemon:
+1. Ensure your Heltec V3 radio is powered on and Bluetooth is enabled on your Raspberry Pi
+2. Run the daemon:
    ```bash
    python3 main.py
    ```
@@ -146,9 +139,16 @@ MeshAgotchi
 
 ## Configuration
 
-### Environment Variables
+### BLE Connection
 
-- `MESHCLI_SERIAL_PORT`: Serial port path (e.g., `/dev/ttyUSB0`). Required if meshcli doesn't auto-detect.
+On first run, MeshAgotchi will:
+1. Check for a previously connected BLE device
+2. If not found, scan for available BLE MeshCore devices
+3. Display a numbered list for you to select your device
+4. Prompt for the BLE pairing code
+5. Connect and store the device info for future use
+
+Subsequent runs will automatically connect to the stored device.
 
 ### Radio Configuration
 
@@ -198,20 +198,27 @@ The radio name is automatically set to "Meshagotchi" at startup.
 
 **"Warning: Could not retrieve radio link info"**
 - This is usually harmless. The node should still function correctly.
-- Verify radio connection: `meshcli -s /dev/ttyUSB0 infos`
+- Verify radio connection: `meshcli -a <BLE_ADDRESS> infos`
 
 **"MeshCore CLI not found"**
 - Ensure meshcore-cli is installed and in PATH
 - Check: `which meshcli` or `which meshcore-cli`
 - See [INSTALL.md](INSTALL.md#step-3-install-meshcore-cli) for installation
 
-**"Permission denied on USB serial"**
-- Add user to dialout group: `sudo usermod -a -G dialout $USER`
-- Log out and log back in
+**"No BLE devices found"**
+- Ensure your MeshCore radio is powered on and in range
+- Check Bluetooth is enabled on Raspberry Pi: `bluetoothctl show`
+- Try scanning manually: `meshcli -l`
+- Ensure radio is in pairing/discoverable mode
+
+**"Failed to connect to BLE device"**
+- Verify pairing code is correct
+- Check device is not already connected to another system
+- Try removing and re-pairing: `bluetoothctl remove <ADDRESS>` then reconnect
 
 **Other nodes can't see MeshAgotchi**
-- Verify radio is connected: `ls -l /dev/ttyUSB*`
-- Check radio name is set: `meshcli -s /dev/ttyUSB0 infos`
+- Verify radio is connected via BLE
+- Check radio name is set: `meshcli -a <BLE_ADDRESS> infos`
 - Ensure adverts are being sent (check logs)
 - Verify both nodes are on the same frequency/preset
 

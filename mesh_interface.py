@@ -10,7 +10,6 @@ import time
 import re
 import json
 import unicodedata
-import glob
 import os
 from queue import Queue
 from typing import Optional, Tuple, Dict
@@ -81,100 +80,117 @@ def _normalize_contact_name(value: str) -> str:
     return normalized
 
 
-def _probe_meshcore_device() -> Optional[str]:
+def _scan_ble_devices() -> list:
     """
-    Probe all /dev/ttyUSB* devices to find a MeshCore radio.
+    Scan for available BLE MeshCore devices.
     
-    Tests each device by attempting to communicate with it using meshcli.
-    Returns the first device that successfully responds to meshcli commands.
+    Uses meshcli -l or meshcli -S to list BLE devices.
     
     Returns:
-        Path to first MeshCore radio device found (e.g., "/dev/ttyUSB1"),
-        or None if no MeshCore radio is detected.
+        List of dictionaries with 'address' and 'name' keys, or empty list if none found
     """
+    devices = []
+    
     try:
-        # Find all ttyUSB devices
-        devices = glob.glob("/dev/ttyUSB*")
+        # Try meshcli -l to list BLE devices
+        # This command scans and lists available BLE devices
+        cmd = ["meshcli", "-l"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10.0  # Allow time for BLE scan
+        )
         
-        if not devices:
-            print("No /dev/ttyUSB* devices found for probing")
-            return None
-        
-        # Sort devices numerically (ttyUSB0 before ttyUSB1, etc.)
-        def sort_key(device_path):
-            # Extract number from /dev/ttyUSB<N>
-            match = re.search(r'ttyUSB(\d+)', device_path)
-            if match:
-                return int(match.group(1))
-            return 999  # Put non-matching devices at end
-        
-        devices.sort(key=sort_key)
-        
-        print(f"Probing {len(devices)} ttyUSB device(s) for MeshCore radio...")
-        
-        # Test each device
-        for device in devices:
-            print(f"  Probing {device}...", end=" ", flush=True)
+        if result.returncode == 0 and result.stdout.strip():
+            output = result.stdout.strip()
+            lines = output.split('\n')
             
-            try:
-                # Test device by running meshcli infos command with JSON output
-                # This is a lightweight command that should work on any MeshCore radio
-                cmd = ["meshcli", "-s", device, "infos", "-j"]
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=3.0  # 3 second timeout per device
-                )
+            # Parse output - format may vary, but typically shows address and name
+            # Example formats:
+            # "C2:2B:A1:D5:3E:B6  DeviceName"
+            # or JSON format
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
                 
-                # Check if command succeeded and returned valid output
-                if result.returncode == 0 and result.stdout.strip():
-                    # Try to parse JSON to verify it's actually a MeshCore device
-                    output = result.stdout.strip()
-                    
-                    # Extract JSON from output (may have preamble)
-                    json_start = output.find("{")
-                    if json_start != -1:
-                        json_str = output[json_start:]
-                        try:
-                            parsed = json.loads(json_str)
-                            # If we got valid JSON, it's likely a MeshCore device
-                            if isinstance(parsed, dict):
-                                print(f"✓ Found MeshCore radio")
-                                return device
-                        except json.JSONDecodeError:
-                            # Not JSON, but command succeeded - might still be MeshCore
-                            # Check for recognizable MeshCore output patterns
-                            if any(keyword in output.lower() for keyword in ["radio_freq", "radio_bw", "name", "public_key"]):
-                                print(f"✓ Found MeshCore radio")
-                                return device
-                    else:
-                        # No JSON found, but command succeeded
-                        # Check for recognizable MeshCore patterns in text output
-                        if any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
-                            print(f"✓ Found MeshCore radio")
-                            return device
+                # Try to parse as JSON first
+                if line.startswith('{'):
+                    try:
+                        parsed = json.loads(line)
+                        if 'address' in parsed:
+                            devices.append({
+                                'address': parsed['address'],
+                                'name': parsed.get('name', 'Unknown')
+                            })
+                        continue
+                    except json.JSONDecodeError:
+                        pass
                 
-                # Command failed or no valid output
-                print("✗ Not a MeshCore radio")
-                
-            except subprocess.TimeoutExpired:
-                print("✗ Timeout (not responding)")
-            except FileNotFoundError:
-                print("✗ meshcli command not found")
-                # If meshcli isn't found, we can't probe - return None
-                return None
-            except PermissionError:
-                print("✗ Permission denied")
-            except Exception as e:
-                print(f"✗ Error: {e}")
+                # Parse text format - look for MAC address pattern (XX:XX:XX:XX:XX:XX)
+                mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
+                match = re.search(mac_pattern, line)
+                if match:
+                    address = match.group(1).upper()
+                    # Extract name (everything after the address)
+                    name_part = line[match.end():].strip()
+                    # Remove any extra whitespace or separators
+                    name = re.sub(r'^\s*[-:]\s*', '', name_part).strip() or 'Unknown'
+                    devices.append({
+                        'address': address,
+                        'name': name
+                    })
         
-        print("No MeshCore radio found on any ttyUSB device")
-        return None
+        # If -l didn't work, try -S (selector mode) - but this is interactive
+        # For now, we'll rely on -l
         
+    except subprocess.TimeoutExpired:
+        print("BLE scan timed out")
+    except FileNotFoundError:
+        print("meshcli command not found")
     except Exception as e:
-        print(f"Error during device probing: {e}")
+        print(f"Error scanning for BLE devices: {e}")
+    
+    return devices
+
+
+def _select_ble_device_interactive(devices: list) -> Optional[Dict]:
+    """
+    Display numbered list of BLE devices and prompt user for selection.
+    
+    Args:
+        devices: List of device dicts with 'address' and 'name' keys
+    
+    Returns:
+        Selected device dict or None if cancelled
+    """
+    if not devices:
+        print("No BLE devices found. Please ensure your MeshCore radio is powered on and in range.")
         return None
+    
+    print("\nAvailable BLE devices:")
+    for i, device in enumerate(devices, 1):
+        name = device.get('name', 'Unknown')
+        address = device.get('address', 'Unknown')
+        print(f"  {i} - {name} ({address})")
+    
+    while True:
+        try:
+            choice = input("\nSelect device number (or 'q' to quit): ").strip()
+            if choice.lower() == 'q':
+                return None
+            
+            index = int(choice) - 1
+            if 0 <= index < len(devices):
+                return devices[index]
+            else:
+                print(f"Invalid selection. Please enter a number between 1 and {len(devices)}")
+        except ValueError:
+            print("Invalid input. Please enter a number or 'q' to quit.")
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+            return None
 
 
 class MeshHandler:
@@ -182,7 +198,7 @@ class MeshHandler:
     Handles all MeshCore CLI communication with rate limiting.
     
     Hardware: Heltec V3 LoRa radio running latest MeshCore firmware,
-    connected to Raspberry Pi via USB Serial.
+    connected to Raspberry Pi via BLE (Bluetooth Low Energy).
     """
     
     # USA/Canada (Recommended) preset parameters
@@ -194,14 +210,13 @@ class MeshHandler:
         'power': 22              # 22 dBm
     }
     
-    def __init__(self, min_send_interval: float = 2.0, max_message_length: int = 200, serial_port: Optional[str] = None):
+    def __init__(self, min_send_interval: float = 2.0, max_message_length: int = 200):
         """
-        Initialize MeshHandler.
+        Initialize MeshHandler with BLE connection.
         
         Args:
             min_send_interval: Minimum seconds between sends (default: 2.0)
             max_message_length: Maximum message length in bytes (default: 200)
-            serial_port: Serial port path (e.g., "/dev/ttyUSB0"). If None, will auto-detect /dev/ttyUSB0.
         """
         self.message_queue = Queue()
         self.last_send_time = None
@@ -210,25 +225,14 @@ class MeshHandler:
         self.radio_version = None
         self.radio_info = None
         
-        # Auto-detect serial port if not specified
-        if serial_port is None:
-            # Check environment variable first
-            serial_port = os.environ.get("MESHCLI_SERIAL_PORT")
-            
-            # If still None, probe for MeshCore radio on ttyUSB devices
-            if serial_port is None:
-                serial_port = _probe_meshcore_device()
-            
-            # If probing didn't find a device, fall back to checking common device paths
-            if serial_port is None:
-                if os.path.exists("/dev/ttyUSB0"):
-                    serial_port = "/dev/ttyUSB0"
-                    print("Using /dev/ttyUSB0 (fallback - not verified as MeshCore radio)")
-                elif os.path.exists("/dev/ttyACM0"):
-                    serial_port = "/dev/ttyACM0"
-                    print("Using /dev/ttyACM0 (fallback - not verified as MeshCore radio)")
+        # BLE connection info
+        self.ble_address = None
+        self.ble_name = None
+        self.ble_pairing_code = None
         
-        self.serial_port = serial_port  # e.g., "/dev/ttyUSB0" or None if auto-detected
+        # Connect via BLE
+        self._connect_ble()
+        
         self.friends = set()  # Track discovered nodes as friends
 
         # Cache for contacts mapping (adv_name -> public_key). Avoid shelling out to meshcli
@@ -236,6 +240,137 @@ class MeshHandler:
         self._contacts_cache_ts = 0.0
         self._contacts_cache_ttl_s = 10.0
         self._contacts_cache_name_to_pubkey: Dict[str, str] = {}
+
+    def _connect_ble(self):
+        """
+        Establish BLE connection to MeshCore radio.
+        
+        Flow:
+        1. Check database for stored BLE device
+        2. If found, attempt connection with stored info
+        3. If not found or connection fails, scan and prompt user
+        4. Store successful connection in database
+        """
+        import database
+        
+        # Step 1: Check for stored BLE device
+        stored_device = database.get_stored_ble_device()
+        
+        if stored_device:
+            address = stored_device['address']
+            name = stored_device.get('name', 'Unknown')
+            pairing_code = stored_device.get('pairing_code')
+            
+            print(f"Found stored BLE device: {name} ({address})")
+            
+            # Attempt connection with stored device
+            if self._test_ble_connection(address, pairing_code):
+                self.ble_address = address
+                self.ble_name = name
+                self.ble_pairing_code = pairing_code
+                database.update_ble_device_connection(address)
+                print(f"Connected to BLE device: {name} ({address})")
+                return
+        
+        # Step 2: No stored device or connection failed - scan and prompt
+        print("Scanning for BLE devices...")
+        devices = _scan_ble_devices()
+        
+        if not devices:
+            print("No BLE devices found. Please ensure your MeshCore radio is powered on and in range.")
+            raise RuntimeError("No BLE devices available")
+        
+        # Step 3: User selects device
+        selected_device = _select_ble_device_interactive(devices)
+        if not selected_device:
+            raise RuntimeError("No BLE device selected")
+        
+        address = selected_device['address']
+        name = selected_device.get('name', 'Unknown')
+        
+        # Step 4: Prompt for pairing code
+        print(f"\nSelected device: {name} ({address})")
+        pairing_code = None
+        while True:
+            try:
+                code_input = input("Enter BLE pairing code (or press Enter if not required): ").strip()
+                if code_input:
+                    pairing_code = code_input
+                break
+            except KeyboardInterrupt:
+                raise RuntimeError("Connection cancelled by user")
+        
+        # Step 5: Attempt connection
+        if not self._test_ble_connection(address, pairing_code):
+            print("Failed to connect to BLE device. Please check:")
+            print("  - Device is powered on and in range")
+            print("  - Pairing code is correct")
+            print("  - Device is not already connected to another system")
+            raise RuntimeError(f"Failed to connect to BLE device {address}")
+        
+        # Step 6: Store successful connection
+        self.ble_address = address
+        self.ble_name = name
+        self.ble_pairing_code = pairing_code
+        database.store_ble_device(address, name, pairing_code)
+        print(f"Successfully connected to BLE device: {name} ({address})")
+    
+    def _test_ble_connection(self, address: str, pairing_code: Optional[str] = None) -> bool:
+        """
+        Test BLE connection to a device.
+        
+        Args:
+            address: BLE MAC address
+            pairing_code: Optional pairing code
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            # If pairing code is provided, attempt OS-level pairing first
+            if pairing_code:
+                try:
+                    # Use bluetoothctl to pair the device
+                    # Note: This may require user interaction, but we'll try automated pairing
+                    pair_cmd = ["bluetoothctl", "pair", address]
+                    pair_result = subprocess.run(
+                        pair_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10.0
+                    )
+                    # If pairing requires PIN, it will prompt - we can't easily automate this
+                    # The user may need to pair manually via bluetoothctl if this fails
+                    time.sleep(1)  # Brief pause after pairing attempt
+                except Exception as e:
+                    print(f"Note: Automatic pairing may have failed: {e}")
+                    print("You may need to pair manually: bluetoothctl pair " + address)
+            
+            # Try a simple command to test connection
+            # Use meshcli -a <address> with a lightweight command
+            cmd = ["meshcli", "-a", address, "infos", "-j"]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode == 0:
+                # Connection successful - verify we got valid output
+                output = result.stdout.strip()
+                if output:
+                    # Check if output contains expected MeshCore data
+                    if "{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
+                        return True
+            
+            return False
+            
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception as e:
+            print(f"Error testing BLE connection: {e}")
+            return False
 
     def _get_contacts_name_to_pubkey_map(self, force_refresh: bool = False) -> Dict[str, str]:
         """
@@ -319,7 +454,7 @@ class MeshHandler:
     
     def _build_meshcli_cmd(self, *args, json_output: bool = False) -> list:
         """
-        Build meshcli command with optional serial port.
+        Build meshcli command with BLE address.
         
         Args:
             *args: Command arguments (e.g., "receive", "send", "node_id", "message")
@@ -328,9 +463,10 @@ class MeshHandler:
         Returns:
             List of command arguments for subprocess.run
         """
-        cmd = ["meshcli"]
-        if self.serial_port:
-            cmd.extend(["-s", self.serial_port])
+        if not self.ble_address:
+            raise RuntimeError("BLE device not connected. Cannot build meshcli command.")
+        
+        cmd = ["meshcli", "-a", self.ble_address]
         if json_output:
             cmd.append("-j")
         cmd.extend(args)
