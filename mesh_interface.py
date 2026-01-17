@@ -88,6 +88,59 @@ def _normalize_contact_name(value: str) -> str:
     return normalized
 
 
+def _check_rfkill_status() -> bool:
+    """
+    Check if Bluetooth is blocked by rfkill and unblock if needed.
+    
+    Returns:
+        True if Bluetooth is unblocked, False otherwise
+    """
+    try:
+        # Check rfkill status
+        cmd = ["rfkill", "list", "bluetooth"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if result.returncode == 0:
+            output = result.stdout
+            # Check if any Bluetooth device is blocked
+            if " blocked" in output.lower() or ": yes" in output:
+                print("Bluetooth is blocked by rfkill. Attempting to unblock...")
+                is_root = _is_running_as_root()
+                
+                unblock_cmd = ["rfkill", "unblock", "bluetooth"]
+                if not is_root:
+                    unblock_cmd = ["sudo", "-n"] + unblock_cmd
+                
+                unblock_result = subprocess.run(
+                    unblock_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
+                
+                if unblock_result.returncode == 0:
+                    print("Bluetooth unblocked successfully")
+                    time.sleep(2)  # Wait for unblock to take effect
+                    return True
+                else:
+                    print("Failed to unblock Bluetooth with rfkill")
+                    if unblock_result.stderr:
+                        print(f"Error: {unblock_result.stderr.strip()}")
+                    return False
+        return True  # Not blocked or couldn't check
+    except FileNotFoundError:
+        print("rfkill command not found, skipping rfkill check")
+        return True  # Assume not blocked if we can't check
+    except Exception as e:
+        print(f"Error checking rfkill: {e}")
+        return True  # Continue anyway
+
+
 def _ensure_bluetooth_enabled() -> bool:
     """
     Ensure Bluetooth is powered on and ready for BLE scanning.
@@ -96,6 +149,48 @@ def _ensure_bluetooth_enabled() -> bool:
         True if Bluetooth is enabled, False otherwise
     """
     try:
+        # First check and unblock rfkill if needed
+        if not _check_rfkill_status():
+            print("Could not unblock Bluetooth. Please run manually:")
+            print("  sudo rfkill unblock bluetooth")
+            return False
+        
+        # Check Bluetooth service status
+        is_root = _is_running_as_root()
+        service_cmd = ["systemctl", "is-active", "bluetooth"]
+        if not is_root:
+            service_cmd = ["sudo", "-n"] + service_cmd
+        
+        service_result = subprocess.run(
+            service_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if service_result.returncode != 0 or "active" not in service_result.stdout:
+            print("Bluetooth service is not active. Attempting to start...")
+            start_cmd = ["systemctl", "start", "bluetooth"]
+            if not is_root:
+                start_cmd = ["sudo", "-n"] + start_cmd
+            
+            start_result = subprocess.run(
+                start_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if start_result.returncode == 0:
+                print("Bluetooth service started")
+                time.sleep(2)  # Wait for service to initialize
+            else:
+                print("Failed to start Bluetooth service")
+                if start_result.stderr:
+                    print(f"Error: {start_result.stderr.strip()}")
+                print("Please run manually: sudo systemctl start bluetooth")
+                return False
+        
         # Check Bluetooth power state
         cmd = ["bluetoothctl", "show"]
         result = subprocess.run(
@@ -191,10 +286,14 @@ def _ensure_bluetooth_enabled() -> bool:
                                 print("Bluetooth powered on successfully after restart")
                                 time.sleep(2)
                             else:
-                                print("Still failed after restart. Please check:")
-                                print("  sudo systemctl status bluetooth")
-                                print("  sudo bluetoothctl power on")
-                                return False
+                    print("Still failed after restart.")
+                    print("\nTroubleshooting steps:")
+                    print("  1. Check Bluetooth service: sudo systemctl status bluetooth")
+                    print("  2. Check if hardware is blocked: rfkill list bluetooth")
+                    print("  3. Unblock if needed: sudo rfkill unblock bluetooth")
+                    print("  4. Restart service: sudo systemctl restart bluetooth")
+                    print("  5. Try power on: sudo bluetoothctl power on")
+                    return False
                         else:
                             print("Could not restart Bluetooth service")
                             return False
