@@ -172,32 +172,38 @@ MeshAgotchi requires one external package for BLE scanning: **Bleak**
 #### Option 1: Install with Virtual Environment (Recommended)
 
 ```bash
-# Navigate to MeshAgotchi directory
+# Step 1: Navigate to MeshAgotchi directory (IMPORTANT: must be in this directory)
 cd ~/Meshagotchi
 
-# Create a virtual environment
+# Step 2: Create a virtual environment in the MeshAgotchi directory
 python3 -m venv venv
 
-# Activate the virtual environment
+# Step 3: Activate the virtual environment
 source venv/bin/activate
 
-# Verify you're using the venv's pip (should show path to venv/bin/pip)
+# You should now see (venv) in your prompt:
+# (venv) meshagotchi@meshagotchi:~/Meshagotchi $
+
+# Step 4: Verify you're using the venv's pip (should show path to venv/bin/pip)
 which pip
 # Should output: /home/meshagotchi/Meshagotchi/venv/bin/pip
 
-# If it shows /usr/bin/pip, the venv isn't activated properly
-# Try: source venv/bin/activate again
+which python3
+# Should output: /home/meshagotchi/Meshagotchi/venv/bin/python3
 
-# Upgrade pip (recommended)
+# If either shows /usr/bin/, the venv isn't activated properly
+# Make sure you're in ~/Meshagotchi directory and run: source venv/bin/activate
+
+# Step 5: Upgrade pip (recommended)
 python3 -m pip install --upgrade pip
 
-# Install Bleak using python3 -m pip (more reliable)
+# Step 6: Install Bleak using python3 -m pip (more reliable)
 python3 -m pip install bleak
 
 # Or install from requirements file
 python3 -m pip install -r requirements.txt
 
-# Verify installation
+# Step 7: Verify installation
 python3 -c "import bleak; print('Bleak installed successfully')"
 
 # Deactivate virtual environment when done (optional)
