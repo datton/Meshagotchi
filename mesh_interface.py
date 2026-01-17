@@ -816,18 +816,18 @@ class MeshHandler:
             except KeyboardInterrupt:
                 raise RuntimeError("Connection cancelled by user")
         
-        # Step 5: Attempt connection (pairing is done inside _test_ble_connection if needed)
-        # If pairing_code was provided, pairing should have been done in _pair_ble_device
-        # Now we just need to verify connection works
-        connection_successful = False
-        
+        # Step 5: Pair device if pairing code provided
         if pairing_code:
-            # Pairing was already attempted in _pair_ble_device, now test connection
-            print("Verifying connection after pairing...")
-            connection_successful = self._test_ble_connection(address, pairing_code=None)
-        else:
-            # No pairing code, just test connection
-            connection_successful = self._test_ble_connection(address, pairing_code=None)
+            print("Pairing with device...")
+            if not self._pair_ble_device(address, pairing_code):
+                print("Warning: Pairing may have failed, but continuing with connection attempt...")
+            else:
+                print("Pairing successful! Waiting for connection to stabilize...")
+                time.sleep(3)  # Wait for connection to stabilize after pairing
+        
+        # Step 6: Test connection using meshcli
+        print("Testing connection...")
+        connection_successful = self._test_ble_connection(address, pairing_code=None)
         
         if not connection_successful:
             print("Connection test failed. Attempting to establish connection...")
@@ -840,7 +840,7 @@ class MeshHandler:
             print("  - Device is powered on and in range")
             print("  - Pairing code is correct")
             print("  - Device is not already connected to another system")
-            print("  - Try: meshcli -a", address, "infos")
+            print(f"  - Try manually: meshcli -a {address} infos")
             raise RuntimeError(f"Failed to connect to BLE device {address}")
         
         # Step 6: Store successful connection
