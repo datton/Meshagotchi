@@ -53,6 +53,7 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 - Raspberry Pi OS (64-bit) - Bookworm or newer
 - Python 3.10 or higher
 - MeshCore CLI (meshcore-cli)
+- Bleak library (for BLE scanning) - `pip3 install bleak`
 - MeshCore-compatible firmware on Heltec V3 radio
 
 ## Quick Start
@@ -76,6 +77,9 @@ python3 -m venv venv
 source venv/bin/activate
 pip install meshcore
 pip install .
+
+# Install Bleak for BLE scanning (recommended)
+pip3 install bleak
 
 # Run MeshAgotchi
 cd ~/Meshagotchi

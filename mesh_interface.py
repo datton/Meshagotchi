@@ -11,9 +11,16 @@ import re
 import json
 import unicodedata
 import os
+import asyncio
 from queue import Queue
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 from datetime import datetime, timedelta
+
+try:
+    from bleak import BleakScanner
+    BLEAK_AVAILABLE = True
+except ImportError:
+    BLEAK_AVAILABLE = False
 
 def _is_running_as_root() -> bool:
     """Check if the current process is running as root."""
@@ -393,49 +400,84 @@ def _ensure_bluetooth_enabled() -> bool:
         return False
 
 
+async def _scan_ble_devices_async() -> List[Dict]:
+    """
+    Scan for available BLE MeshCore devices using Bleak.
+    
+    Returns:
+        List of dictionaries with 'address' and 'name' keys
+    """
+    devices = []
+    
+    if not BLEAK_AVAILABLE:
+        return devices
+    
+    try:
+        print("Scanning for BLE devices with Bleak...")
+        scanner = BleakScanner()
+        discovered_devices = await scanner.discover(timeout=10.0)
+        
+        for device in discovered_devices:
+            # Filter for devices that might be MeshCore (you can adjust this filter)
+            # MeshCore devices often have specific name patterns or service UUIDs
+            name = device.name or "Unknown"
+            address = device.address
+            
+            # Add all discovered devices, or filter by name pattern if needed
+            # For now, we'll include all devices and let the user choose
+            devices.append({
+                'address': address,
+                'name': name
+            })
+        
+        print(f"Found {len(devices)} BLE device(s)")
+        
+    except Exception as e:
+        print(f"Error scanning with Bleak: {e}")
+    
+    return devices
+
+
 def _scan_ble_devices() -> list:
     """
     Scan for available BLE MeshCore devices.
     
-    Uses meshcli -l to list BLE devices. Falls back to bluetoothctl if needed.
+    Uses Bleak if available (recommended), falls back to meshcli -l or bluetoothctl.
     
     Returns:
         List of dictionaries with 'address' and 'name' keys, or empty list if none found
     """
     devices = []
     
-    # First, try meshcli -l
+    # First, try Bleak (modern, recommended approach)
+    if BLEAK_AVAILABLE:
+        try:
+            devices = asyncio.run(_scan_ble_devices_async())
+            if devices:
+                return devices
+        except Exception as e:
+            print(f"Bleak scan failed: {e}, falling back to meshcli...")
+    
+    # Fallback to meshcli -l
     try:
         cmd = ["meshcli", "-l"]
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=15.0  # Allow more time for BLE scan
+            timeout=15.0
         )
-        
-        # Debug: show what meshcli returned
-        if result.stdout:
-            print(f"meshcli -l output: {result.stdout[:200]}...")  # Show first 200 chars
-        if result.stderr:
-            print(f"meshcli -l stderr: {result.stderr[:200]}...")
-        if result.returncode != 0:
-            print(f"meshcli -l returned exit code: {result.returncode}")
         
         if result.returncode == 0 and result.stdout.strip():
             output = result.stdout.strip()
             lines = output.split('\n')
             
-            # Parse output - format may vary, but typically shows address and name
-            # Example formats:
-            # "C2:2B:A1:D5:3E:B6  DeviceName"
-            # or JSON format
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
                 
-                # Try to parse as JSON first
+                # Try JSON format
                 if line.startswith('{'):
                     try:
                         parsed = json.loads(line)
@@ -448,14 +490,12 @@ def _scan_ble_devices() -> list:
                     except json.JSONDecodeError:
                         pass
                 
-                # Parse text format - look for MAC address pattern (XX:XX:XX:XX:XX:XX)
+                # Parse text format - look for MAC address pattern
                 mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
                 match = re.search(mac_pattern, line)
                 if match:
                     address = match.group(1).upper()
-                    # Extract name (everything after the address)
                     name_part = line[match.end():].strip()
-                    # Remove any extra whitespace or separators
                     name = re.sub(r'^\s*[-:]\s*', '', name_part).strip() or 'Unknown'
                     devices.append({
                         'address': address,
@@ -465,20 +505,18 @@ def _scan_ble_devices() -> list:
     except subprocess.TimeoutExpired:
         print("BLE scan timed out (meshcli -l)")
     except FileNotFoundError:
-        print("meshcli command not found. Please ensure MeshCore CLI is installed.")
+        print("meshcli command not found")
     except Exception as e:
         print(f"Error scanning with meshcli: {e}")
     
-    # If meshcli didn't find devices, try bluetoothctl as fallback
+    # Final fallback to bluetoothctl
     if not devices:
         try:
-            print("Trying bluetoothctl to scan for BLE devices...")
-            # Start bluetoothctl scan
+            print("Trying bluetoothctl as final fallback...")
             scan_cmd = ["bluetoothctl", "scan", "on"]
             subprocess.run(scan_cmd, capture_output=True, timeout=2.0)
-            time.sleep(5)  # Wait for scan
+            time.sleep(5)
             
-            # Get devices
             devices_cmd = ["bluetoothctl", "devices"]
             result = subprocess.run(
                 devices_cmd,
@@ -490,12 +528,10 @@ def _scan_ble_devices() -> list:
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
                 for line in lines:
-                    # bluetoothctl format: "Device C2:2B:A1:D5:3E:B6 DeviceName"
                     mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
                     match = re.search(mac_pattern, line)
                     if match:
                         address = match.group(1).upper()
-                        # Extract name (everything after the MAC address)
                         name_part = line[match.end():].strip()
                         name = name_part or 'Unknown'
                         devices.append({

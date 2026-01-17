@@ -167,14 +167,17 @@ python3 --version
 
 ### Install Dependencies
 
-MeshAgotchi uses only Python standard library modules, so no additional packages are required:
-- `sqlite3` (standard library)
-- `subprocess` (standard library)
-- `queue` (standard library)
-- `hashlib` (standard library)
-- `datetime` (standard library)
+MeshAgotchi requires one external package for BLE scanning:
 
-**No pip install required!**
+```bash
+# Install Bleak for BLE device scanning (recommended)
+pip3 install bleak
+
+# Or install from requirements file
+pip3 install -r requirements.txt
+```
+
+**Note**: Bleak is the modern standard for BLE operations on Linux/Raspberry Pi. If Bleak is not installed, MeshAgotchi will fall back to using `meshcli -l` or `bluetoothctl` for device scanning, but Bleak is recommended for better reliability.
 
 ### Test Installation
 
