@@ -107,7 +107,7 @@ def _ensure_bluetooth_enabled() -> bool:
         if "Powered: no" in output or "PowerState: off" in output:
             print("Bluetooth is powered off. Attempting to power on...")
             
-            # Try to power on Bluetooth
+            # Try to power on Bluetooth (first without sudo)
             power_cmd = ["bluetoothctl", "power", "on"]
             power_result = subprocess.run(
                 power_cmd,
@@ -120,15 +120,29 @@ def _ensure_bluetooth_enabled() -> bool:
                 print("Bluetooth powered on successfully")
                 time.sleep(2)  # Wait for Bluetooth to initialize
             else:
-                print("Failed to power on Bluetooth automatically.")
-                print("Please run manually: sudo bluetoothctl power on")
-                return False
+                # Try with sudo if regular command failed
+                print("Regular command failed, trying with sudo...")
+                sudo_power_cmd = ["sudo", "bluetoothctl", "power", "on"]
+                sudo_power_result = subprocess.run(
+                    sudo_power_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0
+                )
+                
+                if sudo_power_result.returncode == 0:
+                    print("Bluetooth powered on successfully (with sudo)")
+                    time.sleep(2)  # Wait for Bluetooth to initialize
+                else:
+                    print("Failed to power on Bluetooth automatically.")
+                    print("Please run manually: sudo bluetoothctl power on")
+                    return False
         
         # Check if it's blocked (may need to unblock with rfkill)
         if "PowerState: off-blocked" in output:
             print("Bluetooth is blocked. Attempting to unblock with rfkill...")
             try:
-                # Try to unblock with rfkill (may require sudo)
+                # Try to unblock with rfkill (first without sudo)
                 unblock_cmd = ["rfkill", "unblock", "bluetooth"]
                 unblock_result = subprocess.run(
                     unblock_cmd,
@@ -139,13 +153,30 @@ def _ensure_bluetooth_enabled() -> bool:
                 if unblock_result.returncode == 0:
                     print("Bluetooth unblocked successfully")
                     time.sleep(1)
-                    # Now try to power on
-                    power_cmd = ["bluetoothctl", "power", "on"]
-                    subprocess.run(power_cmd, capture_output=True, timeout=5.0)
-                    time.sleep(2)
                 else:
-                    print("Could not unblock Bluetooth automatically (may need sudo)")
-                    print("Please run manually: sudo rfkill unblock bluetooth")
+                    # Try with sudo
+                    print("Regular command failed, trying with sudo...")
+                    sudo_unblock_cmd = ["sudo", "rfkill", "unblock", "bluetooth"]
+                    sudo_unblock_result = subprocess.run(
+                        sudo_unblock_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    if sudo_unblock_result.returncode == 0:
+                        print("Bluetooth unblocked successfully (with sudo)")
+                        time.sleep(1)
+                    else:
+                        print("Could not unblock Bluetooth automatically")
+                        print("Please run manually: sudo rfkill unblock bluetooth")
+                
+                # Now try to power on (with or without sudo)
+                power_cmd = ["bluetoothctl", "power", "on"]
+                power_result = subprocess.run(power_cmd, capture_output=True, timeout=5.0)
+                if power_result.returncode != 0:
+                    sudo_power_cmd = ["sudo", "bluetoothctl", "power", "on"]
+                    subprocess.run(sudo_power_cmd, capture_output=True, timeout=5.0)
+                time.sleep(2)
             except FileNotFoundError:
                 print("rfkill command not found. Please install rfkill or run manually:")
                 print("  sudo rfkill unblock bluetooth")
