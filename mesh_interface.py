@@ -84,23 +84,30 @@ def _scan_ble_devices() -> list:
     """
     Scan for available BLE MeshCore devices.
     
-    Uses meshcli -l or meshcli -S to list BLE devices.
+    Uses meshcli -l to list BLE devices. Falls back to bluetoothctl if needed.
     
     Returns:
         List of dictionaries with 'address' and 'name' keys, or empty list if none found
     """
     devices = []
     
+    # First, try meshcli -l
     try:
-        # Try meshcli -l to list BLE devices
-        # This command scans and lists available BLE devices
         cmd = ["meshcli", "-l"]
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=10.0  # Allow time for BLE scan
+            timeout=15.0  # Allow more time for BLE scan
         )
+        
+        # Debug: show what meshcli returned
+        if result.stdout:
+            print(f"meshcli -l output: {result.stdout[:200]}...")  # Show first 200 chars
+        if result.stderr:
+            print(f"meshcli -l stderr: {result.stderr[:200]}...")
+        if result.returncode != 0:
+            print(f"meshcli -l returned exit code: {result.returncode}")
         
         if result.returncode == 0 and result.stdout.strip():
             output = result.stdout.strip()
@@ -142,15 +149,48 @@ def _scan_ble_devices() -> list:
                         'name': name
                     })
         
-        # If -l didn't work, try -S (selector mode) - but this is interactive
-        # For now, we'll rely on -l
-        
     except subprocess.TimeoutExpired:
-        print("BLE scan timed out")
+        print("BLE scan timed out (meshcli -l)")
     except FileNotFoundError:
-        print("meshcli command not found")
+        print("meshcli command not found. Please ensure MeshCore CLI is installed.")
     except Exception as e:
-        print(f"Error scanning for BLE devices: {e}")
+        print(f"Error scanning with meshcli: {e}")
+    
+    # If meshcli didn't find devices, try bluetoothctl as fallback
+    if not devices:
+        try:
+            print("Trying bluetoothctl to scan for BLE devices...")
+            # Start bluetoothctl scan
+            scan_cmd = ["bluetoothctl", "scan", "on"]
+            subprocess.run(scan_cmd, capture_output=True, timeout=2.0)
+            time.sleep(5)  # Wait for scan
+            
+            # Get devices
+            devices_cmd = ["bluetoothctl", "devices"]
+            result = subprocess.run(
+                devices_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    # bluetoothctl format: "Device C2:2B:A1:D5:3E:B6 DeviceName"
+                    mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
+                    match = re.search(mac_pattern, line)
+                    if match:
+                        address = match.group(1).upper()
+                        # Extract name (everything after the MAC address)
+                        name_part = line[match.end():].strip()
+                        name = name_part or 'Unknown'
+                        devices.append({
+                            'address': address,
+                            'name': name
+                        })
+        except Exception as e:
+            print(f"Error scanning with bluetoothctl: {e}")
     
     return devices
 
@@ -277,8 +317,34 @@ class MeshHandler:
         devices = _scan_ble_devices()
         
         if not devices:
-            print("No BLE devices found. Please ensure your MeshCore radio is powered on and in range.")
-            raise RuntimeError("No BLE devices available")
+            print("\nNo BLE devices found via automatic scan.")
+            print("Troubleshooting steps:")
+            print("  1. Ensure your MeshCore radio is powered on")
+            print("  2. Check Bluetooth is enabled: bluetoothctl show")
+            print("  3. Try manual scan: meshcli -l")
+            print("  4. If you know the BLE address, you can enter it manually")
+            
+            # Offer manual entry as fallback
+            while True:
+                try:
+                    manual_input = input("\nEnter BLE address manually (format: XX:XX:XX:XX:XX:XX) or 'q' to quit: ").strip()
+                    if manual_input.lower() == 'q':
+                        raise RuntimeError("No BLE device selected")
+                    
+                    # Validate MAC address format
+                    mac_pattern = r'^([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})$'
+                    if re.match(mac_pattern, manual_input):
+                        address = manual_input.upper()
+                        name = input("Enter device name (or press Enter for 'Unknown'): ").strip() or 'Unknown'
+                        devices = [{'address': address, 'name': name}]
+                        break
+                    else:
+                        print("Invalid MAC address format. Please use format: XX:XX:XX:XX:XX:XX")
+                except KeyboardInterrupt:
+                    raise RuntimeError("Connection cancelled by user")
+            
+            if not devices:
+                raise RuntimeError("No BLE devices available")
         
         # Step 3: User selects device
         selected_device = _select_ble_device_interactive(devices)
