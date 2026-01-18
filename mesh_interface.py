@@ -439,18 +439,16 @@ def _input_with_timeout(prompt: str, timeout: float, default=None):
         return default
 
 
-def _display_device_list(devices: List[Dict]):
+def _sort_devices(devices: List[Dict]) -> List[Dict]:
     """
-    Display numbered list of BLE devices with signal strength and pairing status.
+    Sort devices: paired first, then by RSSI (strongest first), then by name.
     
     Args:
         devices: List of device dictionaries
+        
+    Returns:
+        Sorted list of devices
     """
-    if not devices:
-        print("No BLE devices found.")
-        return
-    
-    # Sort devices: paired first, then by RSSI (strongest first), then by name
     def sort_key(device):
         is_paired = device.get('is_paired', False)
         rssi = device.get('rssi')
@@ -464,13 +462,25 @@ def _display_device_list(devices: List[Dict]):
             rssi_val = 999  # Put devices without RSSI at end
         return (priority, rssi_val, device.get('name', '').lower())
     
-    sorted_devices = sorted(devices, key=sort_key)
+    return sorted(devices, key=sort_key)
+
+
+def _display_device_list(devices: List[Dict]):
+    """
+    Display numbered list of BLE devices with signal strength and pairing status.
+    
+    Args:
+        devices: List of device dictionaries (should already be sorted)
+    """
+    if not devices:
+        print("No BLE devices found.")
+        return
     
     print("\nAvailable BLE devices:")
     print(f"{'#':<4} {'Name':<30} {'Address':<20} {'Signal':<15} {'Status':<10}")
     print("-" * 85)
     
-    for i, device in enumerate(sorted_devices, 1):
+    for i, device in enumerate(devices, 1):
         name = device.get('name', 'Unknown')
         address = device.get('address', 'Unknown')
         rssi = device.get('rssi')
@@ -524,13 +534,23 @@ def _get_user_device_selection(devices: List[Dict], stored_device: Optional[Dict
         print("No BLE devices found.")
         return None
     
-    # Check if stored device is in the list
-    auto_device = None
-    if stored_device:
-        auto_device = _auto_select_stored_device(devices, stored_device)
+    # Sort devices for display (paired first, then by signal strength)
+    sorted_devices = _sort_devices(devices)
     
-    # Display device list
-    _display_device_list(devices)
+    # Check if stored device is in the sorted list
+    auto_device = None
+    auto_device_index = None
+    if stored_device:
+        auto_device = _auto_select_stored_device(sorted_devices, stored_device)
+        if auto_device:
+            # Find the index of the auto device in the sorted list
+            for i, device in enumerate(sorted_devices):
+                if device.get('address', '').upper() == auto_device.get('address', '').upper():
+                    auto_device_index = i
+                    break
+    
+    # Display device list (using sorted devices)
+    _display_device_list(sorted_devices)
     
     # If we have a stored device in the list, offer auto-connect
     if auto_device:
@@ -548,7 +568,7 @@ def _get_user_device_selection(devices: List[Dict], stored_device: Optional[Dict
         # User pressed Enter, show selection menu
         print()
     
-    # Manual selection
+    # Manual selection (use sorted_devices so indices match displayed numbers)
     while True:
         try:
             choice = input("Select device number (or 'q' to quit): ").strip()
@@ -556,10 +576,10 @@ def _get_user_device_selection(devices: List[Dict], stored_device: Optional[Dict
                 return None
             
             index = int(choice) - 1
-            if 0 <= index < len(devices):
-                return devices[index]
+            if 0 <= index < len(sorted_devices):
+                return sorted_devices[index]
             else:
-                print(f"Invalid selection. Please enter a number between 1 and {len(devices)}")
+                print(f"Invalid selection. Please enter a number between 1 and {len(sorted_devices)}")
         except ValueError:
             print("Invalid input. Please enter a number or 'q' to quit.")
         except KeyboardInterrupt:
