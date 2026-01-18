@@ -11,22 +11,11 @@ import re
 import json
 import unicodedata
 import os
-import asyncio
+import sys
+import threading
 from queue import Queue
 from typing import Optional, Tuple, Dict, List
 from datetime import datetime, timedelta
-
-try:
-    from bleak import BleakScanner
-    BLEAK_AVAILABLE = True
-except ImportError:
-    BLEAK_AVAILABLE = False
-
-try:
-    import pexpect
-    PEXPECT_AVAILABLE = True
-except ImportError:
-    PEXPECT_AVAILABLE = False
 
 def _is_running_as_root() -> bool:
     """Check if the current process is running as root."""
@@ -101,16 +90,190 @@ def _normalize_contact_name(value: str) -> str:
     return normalized
 
 
-def _check_rfkill_status() -> bool:
+def _check_bluetooth_service() -> bool:
     """
-    Check if Bluetooth is blocked by rfkill and unblock if needed.
+    Check if Bluetooth service is running.
     
     Returns:
-        True if Bluetooth is unblocked, False otherwise
+        True if service is active, False otherwise
     """
     try:
-        # Check rfkill status
-        cmd = ["rfkill", "list", "bluetooth"]
+        is_root = _is_running_as_root()
+        service_cmd = ["systemctl", "is-active", "bluetooth"]
+        if not is_root:
+            service_cmd = ["sudo", "-n"] + service_cmd
+        
+        result = subprocess.run(
+            service_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        return result.returncode == 0 and "active" in result.stdout
+    except Exception:
+        return False
+
+
+def _unblock_bluetooth() -> bool:
+    """
+    Unblock Bluetooth using rfkill.
+    
+    Returns:
+        True if unblocked successfully, False otherwise
+    """
+    try:
+        is_root = _is_running_as_root()
+        unblock_cmd = ["rfkill", "unblock", "bluetooth"]
+        if not is_root:
+            unblock_cmd = ["sudo", "-n"] + unblock_cmd
+        
+        result = subprocess.run(
+            unblock_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if result.returncode == 0:
+            time.sleep(2)  # Wait for unblock to take effect
+            return True
+        return False
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def _power_on_bluetooth() -> bool:
+    """
+    Power on Bluetooth using bluetoothctl.
+    
+    Returns:
+        True if powered on successfully, False otherwise
+    """
+    try:
+        is_root = _is_running_as_root()
+        power_cmd = ["bluetoothctl", "power", "on"]
+        if not is_root:
+            power_cmd = ["sudo", "-n"] + power_cmd
+        
+        result = subprocess.run(
+            power_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5.0
+        )
+        
+        if result.returncode == 0:
+            time.sleep(2)  # Wait for Bluetooth to initialize
+            return True
+        return False
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return False
+
+
+def _ensure_bluetooth_running() -> bool:
+    """
+    Ensure Bluetooth service is running and powered on.
+    
+    Returns:
+        True if Bluetooth is ready, False otherwise
+    """
+    try:
+        # Check and unblock rfkill if needed
+        try:
+            rfkill_cmd = ["rfkill", "list", "bluetooth"]
+            rfkill_result = subprocess.run(
+                rfkill_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            if rfkill_result.returncode == 0:
+                output = rfkill_result.stdout.lower()
+                if "blocked" in output or ": yes" in output:
+                    print("Bluetooth is blocked by rfkill. Unblocking...")
+                    if not _unblock_bluetooth():
+                        print("Failed to unblock Bluetooth. Please run: sudo rfkill unblock bluetooth")
+                        return False
+        except FileNotFoundError:
+            pass  # rfkill not available, continue
+        
+        # Check and start Bluetooth service
+        if not _check_bluetooth_service():
+            print("Bluetooth service is not active. Starting...")
+            is_root = _is_running_as_root()
+            start_cmd = ["systemctl", "start", "bluetooth"]
+            if not is_root:
+                start_cmd = ["sudo", "-n"] + start_cmd
+            
+            result = subprocess.run(
+                start_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode != 0:
+                print("Failed to start Bluetooth service")
+                print("Please run: sudo systemctl start bluetooth")
+                return False
+            time.sleep(2)
+        
+        # Check and power on Bluetooth
+        try:
+            show_cmd = ["bluetoothctl", "show"]
+            show_result = subprocess.run(
+                show_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if show_result.returncode == 0:
+                output = show_result.stdout
+                if "Powered: no" in output or "PowerState: off" in output:
+                    print("Bluetooth is powered off. Powering on...")
+                    if not _power_on_bluetooth():
+                        print("Failed to power on Bluetooth")
+                        print("Please run: sudo bluetoothctl power on")
+                        return False
+                    # Verify it's now on
+                    verify_result = subprocess.run(
+                        show_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    if "Powered: yes" not in verify_result.stdout:
+                        print("Bluetooth is still not powered on")
+                        return False
+        except FileNotFoundError:
+            print("bluetoothctl not found. Please install bluez package.")
+            return False
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error ensuring Bluetooth is running: {e}")
+        return False
+
+
+def _check_device_pairing_status(address: str) -> bool:
+    """
+    Check if a BLE device is already paired.
+    
+    Args:
+        address: BLE MAC address
+        
+    Returns:
+        True if paired, False otherwise
+    """
+    try:
+        cmd = ["bluetoothctl", "devices"]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -119,389 +282,81 @@ def _check_rfkill_status() -> bool:
         )
         
         if result.returncode == 0:
-            output = result.stdout
-            # Check if any Bluetooth device is blocked
-            if " blocked" in output.lower() or ": yes" in output:
-                print("Bluetooth is blocked by rfkill. Attempting to unblock...")
-                is_root = _is_running_as_root()
-                
-                unblock_cmd = ["rfkill", "unblock", "bluetooth"]
-                if not is_root:
-                    unblock_cmd = ["sudo", "-n"] + unblock_cmd
-                
-                unblock_result = subprocess.run(
-                    unblock_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
-                
-                if unblock_result.returncode == 0:
-                    print("Bluetooth unblocked successfully")
-                    time.sleep(2)  # Wait for unblock to take effect
+            # Check if address appears in paired devices
+            address_upper = address.upper()
+            for line in result.stdout.split('\n'):
+                if address_upper in line.upper():
                     return True
-                else:
-                    print("Failed to unblock Bluetooth with rfkill")
-                    if unblock_result.stderr:
-                        print(f"Error: {unblock_result.stderr.strip()}")
-                    return False
-        return True  # Not blocked or couldn't check
-    except FileNotFoundError:
-        print("rfkill command not found, skipping rfkill check")
-        return True  # Assume not blocked if we can't check
-    except Exception as e:
-        print(f"Error checking rfkill: {e}")
-        return True  # Continue anyway
+        return False
+    except Exception:
+        return False
 
 
-def _ensure_bluetooth_enabled() -> bool:
+def _parse_meshcli_list_output(output: str) -> List[Dict]:
     """
-    Ensure Bluetooth is powered on and ready for BLE scanning.
+    Parse output from meshcli -l command.
     
+    Args:
+        output: Output from meshcli -l
+        
     Returns:
-        True if Bluetooth is enabled, False otherwise
+        List of device dictionaries with address, name, rssi, is_paired
     """
-    try:
-        # First check and unblock rfkill if needed
-        if not _check_rfkill_status():
-            print("Could not unblock Bluetooth. Please run manually:")
-            print("  sudo rfkill unblock bluetooth")
-            return False
+    devices = []
+    lines = output.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
         
-        # Check Bluetooth service status
-        is_root = _is_running_as_root()
-        service_cmd = ["systemctl", "is-active", "bluetooth"]
-        if not is_root:
-            service_cmd = ["sudo", "-n"] + service_cmd
-        
-        service_result = subprocess.run(
-            service_cmd,
-            capture_output=True,
-            text=True,
-            timeout=5.0
-        )
-        
-        if service_result.returncode != 0 or "active" not in service_result.stdout:
-            print("Bluetooth service is not active. Attempting to start...")
-            start_cmd = ["systemctl", "start", "bluetooth"]
-            if not is_root:
-                start_cmd = ["sudo", "-n"] + start_cmd
-            
-            start_result = subprocess.run(
-                start_cmd,
-                capture_output=True,
-                text=True,
-                timeout=5.0
-            )
-            
-            if start_result.returncode == 0:
-                print("Bluetooth service started")
-                time.sleep(2)  # Wait for service to initialize
-            else:
-                print("Failed to start Bluetooth service")
-                if start_result.stderr:
-                    print(f"Error: {start_result.stderr.strip()}")
-                print("Please run manually: sudo systemctl start bluetooth")
-                return False
-        
-        # Check Bluetooth power state
-        cmd = ["bluetoothctl", "show"]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=5.0
-        )
-        
-        if result.returncode != 0:
-            print("Warning: Could not check Bluetooth status")
-            return False
-        
-        output = result.stdout
-        
-        # Check if powered is off
-        if "Powered: no" in output or "PowerState: off" in output:
-            print("Bluetooth is powered off. Attempting to power on...")
-            
-            # Check if we're already running as root
-            is_root = _is_running_as_root()
-            
-            # Try to power on Bluetooth
-            if is_root:
-                # Already running as root, don't use sudo
-                power_cmd = ["bluetoothctl", "power", "on"]
-            else:
-                # Try without sudo first
-                power_cmd = ["bluetoothctl", "power", "on"]
-            
-            power_result = subprocess.run(
-                power_cmd,
-                capture_output=True,
-                text=True,
-                timeout=5.0
-            )
-            
-            if power_result.returncode == 0:
-                print("Bluetooth powered on successfully")
-                time.sleep(2)  # Wait for Bluetooth to initialize
-            else:
-                # If not root and regular command failed, try with sudo
-                if not is_root:
-                    print("Regular command failed, trying with sudo...")
-                    sudo_power_cmd = ["sudo", "-n", "bluetoothctl", "power", "on"]  # -n = non-interactive
-                    sudo_power_result = subprocess.run(
-                        sudo_power_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
-                    
-                    if sudo_power_result.returncode == 0:
-                        print("Bluetooth powered on successfully (with sudo)")
-                        time.sleep(2)  # Wait for Bluetooth to initialize
-                    else:
-                        # Show what went wrong
-                        if sudo_power_result.stderr:
-                            print(f"Error: {sudo_power_result.stderr.strip()}")
-                        print("Failed to power on Bluetooth automatically.")
-                        print("Please run manually: sudo bluetoothctl power on")
-                        return False
-                else:
-                    # We're root but it still failed - show detailed error
-                    print(f"Command failed with return code: {power_result.returncode}")
-                    if power_result.stdout:
-                        print(f"stdout: {power_result.stdout.strip()}")
-                    if power_result.stderr:
-                        print(f"stderr: {power_result.stderr.strip()}")
-                    print("Failed to power on Bluetooth (running as root).")
-                    print("Trying alternative method...")
-                    
-                    # Try using systemctl to restart bluetooth service
-                    try:
-                        restart_cmd = ["systemctl", "restart", "bluetooth"]
-                        restart_result = subprocess.run(
-                            restart_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=5.0
-                        )
-                        if restart_result.returncode == 0:
-                            print("Bluetooth service restarted, waiting...")
-                            time.sleep(3)
-                            # Try power on again
-                            power_result2 = subprocess.run(
-                                ["bluetoothctl", "power", "on"],
-                                capture_output=True,
-                                text=True,
-                                timeout=5.0
-                            )
-                            if power_result2.returncode == 0:
-                                print("Bluetooth powered on successfully after restart")
-                                time.sleep(2)
-                            else:
-                                # Check for specific error messages
-                                error_output = (power_result2.stderr or power_result2.stdout or "").strip()
-                                if "org.bluez.Error.Failed" in error_output:
-                                    print("Got org.bluez.Error.Failed - Bluetooth may be blocked or hardware issue")
-                                    print("Checking rfkill status...")
-                                    # Check rfkill again
-                                    rfkill_cmd = ["rfkill", "list", "bluetooth"]
-                                    rfkill_result = subprocess.run(
-                                        rfkill_cmd,
-                                        capture_output=True,
-                                        text=True,
-                                        timeout=5.0
-                                    )
-                                    if rfkill_result.returncode == 0:
-                                        print(rfkill_result.stdout)
-                                
-                                print("Still failed after restart.")
-                                print("\nTroubleshooting steps:")
-                                print("  1. Check Bluetooth service: sudo systemctl status bluetooth")
-                                print("  2. Check if hardware is blocked: rfkill list bluetooth")
-                                print("  3. Unblock if needed: sudo rfkill unblock bluetooth")
-                                print("  4. Restart service: sudo systemctl restart bluetooth")
-                                print("  5. Try power on: sudo bluetoothctl power on")
-                                return False
-                        else:
-                            print("Could not restart Bluetooth service")
-                            return False
-                    except Exception as e:
-                        print(f"Error restarting service: {e}")
-                        return False
-        
-        # Check if it's blocked (may need to unblock with rfkill)
-        if "PowerState: off-blocked" in output:
-            print("Bluetooth is blocked. Attempting to unblock with rfkill...")
+        # Try JSON format first
+        if line.startswith('{'):
             try:
-                is_root = _is_running_as_root()
-                
-                # Try to unblock with rfkill
-                unblock_cmd = ["rfkill", "unblock", "bluetooth"]
-                unblock_result = subprocess.run(
-                    unblock_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=5.0
-                )
-                if unblock_result.returncode == 0:
-                    print("Bluetooth unblocked successfully")
-                    time.sleep(1)
-                elif not is_root:
-                    # Try with sudo
-                    print("Regular command failed, trying with sudo...")
-                    sudo_unblock_cmd = ["sudo", "-n", "rfkill", "unblock", "bluetooth"]
-                    sudo_unblock_result = subprocess.run(
-                        sudo_unblock_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
-                    if sudo_unblock_result.returncode == 0:
-                        print("Bluetooth unblocked successfully (with sudo)")
-                        time.sleep(1)
-                    else:
-                        print("Could not unblock Bluetooth automatically")
-                        print("Please run manually: sudo rfkill unblock bluetooth")
-                
-                # Now try to power on
-                if is_root:
-                    power_cmd = ["bluetoothctl", "power", "on"]
-                else:
-                    power_cmd = ["bluetoothctl", "power", "on"]
-                
-                power_result = subprocess.run(power_cmd, capture_output=True, text=True, timeout=5.0)
-                if power_result.returncode != 0 and not is_root:
-                    sudo_power_cmd = ["sudo", "-n", "bluetoothctl", "power", "on"]
-                    subprocess.run(sudo_power_cmd, capture_output=True, text=True, timeout=5.0)
-                time.sleep(2)
-            except FileNotFoundError:
-                print("rfkill command not found. Please install rfkill or run manually:")
-                print("  sudo rfkill unblock bluetooth")
-                print("  sudo bluetoothctl power on")
+                parsed = json.loads(line)
+                if 'address' in parsed:
+                    address = parsed['address'].upper()
+                    name = parsed.get('name', 'Unknown')
+                    rssi = parsed.get('rssi')
+                    devices.append({
+                        'address': address,
+                        'name': name,
+                        'rssi': rssi,
+                        'is_paired': _check_device_pairing_status(address)
+                    })
+                continue
+            except json.JSONDecodeError:
+                pass
         
-        # Verify it's now powered on
-        verify_result = subprocess.run(
-            ["bluetoothctl", "show"],
-            capture_output=True,
-            text=True,
-            timeout=5.0
-        )
-        
-        if "Powered: yes" in verify_result.stdout:
-            return True
-        else:
-            print("Bluetooth is still not powered on.")
-            print("You may need to run: sudo bluetoothctl power on")
-            return False
-            
-    except subprocess.TimeoutExpired:
-        print("Timeout checking Bluetooth status")
-        return False
-    except FileNotFoundError:
-        print("bluetoothctl command not found. Please install bluez package.")
-        return False
-    except Exception as e:
-        print(f"Error checking Bluetooth status: {e}")
-        return False
-
-
-async def _scan_ble_devices_async() -> List[Dict]:
-    """
-    Scan for available BLE MeshCore devices using Bleak.
-    
-    Returns:
-        List of dictionaries with 'address', 'name', and 'rssi' keys
-    """
-    devices_dict = {}  # Use dict to track latest RSSI per device
-    
-    if not BLEAK_AVAILABLE:
-        return []
-    
-    try:
-        print("Scanning for BLE devices with Bleak...")
-        
-        def detection_callback(device, advertisement_data):
-            """Callback to capture devices with RSSI as they're discovered."""
-            name = device.name or "Unknown"
-            address = device.address
-            
-            # Get RSSI from advertisement data
-            rssi = None
-            if hasattr(advertisement_data, 'rssi'):
-                rssi = advertisement_data.rssi
-            elif hasattr(device, 'rssi'):
-                rssi = device.rssi
-            
-            # Store/update device info (keep latest RSSI if device seen multiple times)
-            if address not in devices_dict or (rssi is not None and devices_dict[address].get('rssi') is None):
-                devices_dict[address] = {
-                    'address': address,
-                    'name': name,
-                    'rssi': rssi
-                }
-            elif rssi is not None:
-                # Update RSSI if we have a newer reading
-                devices_dict[address]['rssi'] = rssi
-                devices_dict[address]['name'] = name  # Update name in case it changed
-        
-        scanner = BleakScanner(detection_callback=detection_callback)
-        await scanner.start()
-        await asyncio.sleep(10.0)  # Scan for 10 seconds
-        await scanner.stop()
-        
-        # Convert dict to list
-        devices = list(devices_dict.values())
-        print(f"Found {len(devices)} BLE device(s)")
-        
-    except Exception as e:
-        print(f"Error scanning with Bleak: {e}")
-        # Fallback to simple discover if callback method fails
-        try:
-            scanner = BleakScanner()
-            discovered_devices = await scanner.discover(timeout=10.0)
-            devices = []
-            for device in discovered_devices:
-                name = device.name or "Unknown"
-                address = device.address
-                rssi = None
-                if hasattr(device, 'rssi'):
-                    rssi = device.rssi
-                devices.append({
-                    'address': address,
-                    'name': name,
-                    'rssi': rssi
-                })
-            print(f"Found {len(devices)} BLE device(s) (fallback method)")
-        except Exception as e2:
-            print(f"Fallback scan also failed: {e2}")
-            devices = []
+        # Parse text format - look for MAC address pattern
+        mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
+        match = re.search(mac_pattern, line)
+        if match:
+            address = match.group(1).upper()
+            name_part = line[match.end():].strip()
+            name = re.sub(r'^\s*[-:]\s*', '', name_part).strip() or 'Unknown'
+            devices.append({
+                'address': address,
+                'name': name,
+                'rssi': None,
+                'is_paired': _check_device_pairing_status(address)
+            })
     
     return devices
 
 
-def _scan_ble_devices() -> list:
+def _discover_ble_devices() -> List[Dict]:
     """
-    Scan for available BLE MeshCore devices.
-    
-    Uses Bleak if available (recommended), falls back to meshcli -l or bluetoothctl.
+    Discover available BLE MeshCore devices using meshcli.
     
     Returns:
-        List of dictionaries with 'address', 'name', and optionally 'rssi' keys, or empty list if none found
+        List of device dictionaries with 'address', 'name', 'rssi', 'is_paired'
     """
     devices = []
     
-    # First, try Bleak (modern, recommended approach)
-    if BLEAK_AVAILABLE:
-        try:
-            devices = asyncio.run(_scan_ble_devices_async())
-            if devices:
-                return devices
-        except Exception as e:
-            print(f"Bleak scan failed: {e}, falling back to meshcli...")
-    
-    # Fallback to meshcli -l
+    # Primary: Use meshcli -l (list devices)
     try:
+        print("Scanning for BLE devices...")
         cmd = ["meshcli", "-l"]
         result = subprocess.run(
             cmd,
@@ -511,166 +366,219 @@ def _scan_ble_devices() -> list:
         )
         
         if result.returncode == 0 and result.stdout.strip():
-            output = result.stdout.strip()
-            lines = output.split('\n')
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Try JSON format
-                if line.startswith('{'):
-                    try:
-                        parsed = json.loads(line)
-                        if 'address' in parsed:
-                            devices.append({
-                                'address': parsed['address'],
-                                'name': parsed.get('name', 'Unknown'),
-                                'rssi': parsed.get('rssi')  # RSSI if available in JSON
-                            })
-                        continue
-                    except json.JSONDecodeError:
-                        pass
-                
-                # Parse text format - look for MAC address pattern
-                mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
-                match = re.search(mac_pattern, line)
-                if match:
-                    address = match.group(1).upper()
-                    name_part = line[match.end():].strip()
-                    name = re.sub(r'^\s*[-:]\s*', '', name_part).strip() or 'Unknown'
-                    devices.append({
-                        'address': address,
-                        'name': name,
-                        'rssi': None  # meshcli -l doesn't provide RSSI
-                    })
-        
-    except subprocess.TimeoutExpired:
-        print("BLE scan timed out (meshcli -l)")
+            devices = _parse_meshcli_list_output(result.stdout)
+            if devices:
+                print(f"Found {len(devices)} BLE device(s)")
+                return devices
     except FileNotFoundError:
-        print("meshcli command not found")
+        print("meshcli command not found. Please install meshcore-cli:")
+        print("  pipx install meshcore-cli")
+        return []
+    except subprocess.TimeoutExpired:
+        print("Device scan timed out")
     except Exception as e:
         print(f"Error scanning with meshcli: {e}")
     
-    # Final fallback to bluetoothctl
+    # Fallback: Try meshcli -S (interactive selector) - parse output if possible
     if not devices:
         try:
-            print("Trying bluetoothctl as final fallback...")
-            scan_cmd = ["bluetoothctl", "scan", "on"]
-            subprocess.run(scan_cmd, capture_output=True, timeout=2.0)
-            time.sleep(5)
-            
-            devices_cmd = ["bluetoothctl", "devices"]
+            print("Trying alternative scan method...")
+            cmd = ["meshcli", "-S", "-T", "5"]
             result = subprocess.run(
-                devices_cmd,
+                cmd,
                 capture_output=True,
                 text=True,
-                timeout=5.0
+                timeout=10.0
             )
-            
-            if result.returncode == 0 and result.stdout.strip():
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    mac_pattern = r'([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})'
-                    match = re.search(mac_pattern, line)
-                    if match:
-                        address = match.group(1).upper()
-                        name_part = line[match.end():].strip()
-                        name = name_part or 'Unknown'
-                        
-                        # Try to get RSSI from bluetoothctl info
-                        rssi = None
-                        try:
-                            info_cmd = ["bluetoothctl", "info", address]
-                            info_result = subprocess.run(
-                                info_cmd,
-                                capture_output=True,
-                                text=True,
-                                timeout=3.0
-                            )
-                            if info_result.returncode == 0:
-                                # Look for RSSI in info output
-                                rssi_match = re.search(r'RSSI:\s*(-?\d+)', info_result.stdout)
-                                if rssi_match:
-                                    rssi = int(rssi_match.group(1))
-                        except Exception:
-                            pass  # RSSI not available, continue without it
-                        
-                        devices.append({
-                            'address': address,
-                            'name': name,
-                            'rssi': rssi
-                        })
-        except Exception as e:
-            print(f"Error scanning with bluetoothctl: {e}")
+            # Note: -S is interactive, so this may not work well
+            # But we can try to parse any output we get
+            if result.stdout:
+                devices = _parse_meshcli_list_output(result.stdout)
+        except Exception:
+            pass
+    
+    if not devices:
+        print("No BLE devices found")
+        print("Troubleshooting:")
+        print("  1. Ensure your MeshCore radio is powered on")
+        print("  2. Check Bluetooth is enabled: bluetoothctl show")
+        print("  3. Try manual scan: meshcli -l")
     
     return devices
 
 
-def _select_ble_device_interactive(devices: list) -> Optional[Dict]:
+def _input_with_timeout(prompt: str, timeout: float, default=None):
     """
-    Display numbered list of BLE devices with signal strength and prompt user for selection.
+    Get user input with timeout.
     
     Args:
-        devices: List of device dicts with 'address', 'name', and optionally 'rssi' keys
-    
+        prompt: Prompt to display
+        timeout: Timeout in seconds
+        default: Default value to return if timeout expires
+        
     Returns:
-        Selected device dict or None if cancelled
+        User input if received, default if timeout expires, None if interrupted
+    """
+    result = [None]
+    input_received = threading.Event()
+    
+    def get_input():
+        try:
+            result[0] = input(prompt)
+            input_received.set()
+        except (EOFError, KeyboardInterrupt):
+            input_received.set()
+    
+    thread = threading.Thread(target=get_input, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    
+    if input_received.is_set():
+        return result[0]
+    else:
+        return default
+
+
+def _display_device_list(devices: List[Dict]):
+    """
+    Display numbered list of BLE devices with signal strength and pairing status.
+    
+    Args:
+        devices: List of device dictionaries
     """
     if not devices:
-        print("No BLE devices found. Please ensure your MeshCore radio is powered on and in range.")
-        return None
+        print("No BLE devices found.")
+        return
     
-    # Sort devices by RSSI (strongest signal first), then by name
-    # Devices with RSSI come first, then devices without RSSI
+    # Sort devices: paired first, then by RSSI (strongest first), then by name
     def sort_key(device):
+        is_paired = device.get('is_paired', False)
         rssi = device.get('rssi')
-        if rssi is not None:
-            return (0, -rssi)  # Negative for descending order
+        if is_paired:
+            priority = 0
         else:
-            return (1, device.get('name', '').lower())
+            priority = 1
+        if rssi is not None:
+            rssi_val = -rssi  # Negative for descending order
+        else:
+            rssi_val = 999  # Put devices without RSSI at end
+        return (priority, rssi_val, device.get('name', '').lower())
     
     sorted_devices = sorted(devices, key=sort_key)
     
     print("\nAvailable BLE devices:")
+    print(f"{'#':<4} {'Name':<30} {'Address':<20} {'Signal':<15} {'Status':<10}")
+    print("-" * 85)
+    
     for i, device in enumerate(sorted_devices, 1):
         name = device.get('name', 'Unknown')
         address = device.get('address', 'Unknown')
         rssi = device.get('rssi')
+        is_paired = device.get('is_paired', False)
         
+        # Format signal strength
         if rssi is not None:
-            # Format RSSI with signal strength indicator
-            if rssi >= -50:
-                strength = "Excellent"
-            elif rssi >= -60:
-                strength = "Very Good"
-            elif rssi >= -70:
-                strength = "Good"
-            elif rssi >= -80:
-                strength = "Fair"
-            else:
-                strength = "Weak"
-            print(f"  {i} - {name} ({address}) - {rssi} dBm ({strength})")
+            signal_str = f"{rssi} dBm"
         else:
-            print(f"  {i} - {name} ({address}) - Signal strength unknown")
+            signal_str = "N/A"
+        
+        # Format pairing status
+        status = "Paired" if is_paired else "Not Paired"
+        
+        print(f"{i:<4} {name[:28]:<30} {address:<20} {signal_str:<15} {status:<10}")
+
+
+def _auto_select_stored_device(devices: List[Dict], stored_device: Dict) -> Optional[Dict]:
+    """
+    Find stored device in discovered devices list.
     
+    Args:
+        devices: List of discovered devices
+        stored_device: Stored device from database
+        
+    Returns:
+        Device dict if found, None otherwise
+    """
+    if not stored_device or not devices:
+        return None
+    
+    stored_address = stored_device.get('address', '').upper()
+    for device in devices:
+        if device.get('address', '').upper() == stored_address:
+            return device
+    return None
+
+
+def _get_user_device_selection(devices: List[Dict], stored_device: Optional[Dict] = None) -> Optional[Dict]:
+    """
+    Get device selection from user with auto-connect timeout.
+    
+    Args:
+        devices: List of discovered devices
+        stored_device: Most recently used device (for auto-connect)
+        
+    Returns:
+        Selected device dict or None if cancelled
+    """
+    if not devices:
+        print("No BLE devices found.")
+        return None
+    
+    # Check if stored device is in the list
+    auto_device = None
+    if stored_device:
+        auto_device = _auto_select_stored_device(devices, stored_device)
+    
+    # Display device list
+    _display_device_list(devices)
+    
+    # If we have a stored device in the list, offer auto-connect
+    if auto_device:
+        device_name = auto_device.get('name', 'Unknown')
+        device_address = auto_device.get('address', 'Unknown')
+        print(f"\nAuto-connecting to {device_name} ({device_address}) in 15 seconds...")
+        print("(Press Enter to select a different device)")
+        
+        user_input = _input_with_timeout("", 15.0, default="auto")
+        
+        if user_input == "auto" or user_input is None:
+            # Auto-connect to stored device
+            print(f"\nAuto-connecting to {device_name} ({device_address})...")
+            return auto_device
+        # User pressed Enter, show selection menu
+        print()
+    
+    # Manual selection
     while True:
         try:
-            choice = input("\nSelect device number (or 'q' to quit): ").strip()
+            choice = input("Select device number (or 'q' to quit): ").strip()
             if choice.lower() == 'q':
                 return None
             
             index = int(choice) - 1
-            if 0 <= index < len(sorted_devices):
-                return sorted_devices[index]
+            if 0 <= index < len(devices):
+                return devices[index]
             else:
-                print(f"Invalid selection. Please enter a number between 1 and {len(sorted_devices)}")
+                print(f"Invalid selection. Please enter a number between 1 and {len(devices)}")
         except ValueError:
             print("Invalid input. Please enter a number or 'q' to quit.")
         except KeyboardInterrupt:
             print("\nCancelled.")
             return None
+
+
+def _select_ble_device(devices: List[Dict], stored_device: Optional[Dict] = None) -> Optional[Dict]:
+    """
+    Select a BLE device with auto-connect support.
+    
+    Args:
+        devices: List of discovered devices
+        stored_device: Most recently used device (for auto-connect)
+        
+    Returns:
+        Selected device dict or None if cancelled
+    """
+    return _get_user_device_selection(devices, stored_device)
 
 
 class MeshHandler:
@@ -725,15 +633,28 @@ class MeshHandler:
         """
         Establish BLE connection to MeshCore radio.
         
-        Flow:
-        1. Check database for stored BLE device
-        2. If found, attempt connection with stored info
-        3. If not found or connection fails, scan and prompt user
-        4. Store successful connection in database
+        Streamlined flow:
+        1. Ensure Bluetooth is running
+        2. Check database for stored device
+        3. If stored device exists, try to connect directly
+        4. If not found or connection fails, discover devices
+        5. Select device (with auto-connect to stored device)
+        6. Get pairing code
+        7. Pair and connect
+        8. Store successful connection
         """
         import database
         
-        # Step 1: Check for stored BLE device
+        # Step 1: Ensure Bluetooth is running
+        print("Checking Bluetooth status...")
+        if not _ensure_bluetooth_running():
+            print("\nBluetooth is not ready. Please ensure:")
+            print("  - Bluetooth service is running: sudo systemctl start bluetooth")
+            print("  - Bluetooth is powered on: sudo bluetoothctl power on")
+            print("  - Bluetooth is not blocked: sudo rfkill unblock bluetooth")
+            raise RuntimeError("Bluetooth is not ready")
+        
+        # Step 2: Check database for stored device
         stored_device = database.get_stored_ble_device()
         
         if stored_device:
@@ -742,127 +663,203 @@ class MeshHandler:
             pairing_code = stored_device.get('pairing_code')
             
             print(f"Found stored BLE device: {name} ({address})")
+            print("Attempting to connect...")
             
-            # Attempt connection with stored device
-            if self._test_ble_connection(address, pairing_code):
+            # Try to connect directly with stored device
+            if self._test_ble_connection(address):
                 self.ble_address = address
                 self.ble_name = name
                 self.ble_pairing_code = pairing_code
                 database.update_ble_device_connection(address)
-                print(f"Connected to BLE device: {name} ({address})")
+                print(f"Connected to stored BLE device: {name} ({address})")
                 return
         
-        # Step 2: No stored device or connection failed - scan and prompt
-        # First ensure Bluetooth is enabled
-        print("Checking Bluetooth status...")
-        if not _ensure_bluetooth_enabled():
-            print("\nBluetooth is not enabled. Please enable Bluetooth first:")
-            print("  sudo bluetoothctl power on")
-            print("Or if blocked, you may need to:")
-            print("  sudo rfkill unblock bluetooth")
-            print("  sudo bluetoothctl power on")
-            raise RuntimeError("Bluetooth is not enabled")
-        
+        # Step 3: Discover available devices
         print("Scanning for BLE devices...")
-        devices = _scan_ble_devices()
+        devices = _discover_ble_devices()
         
         if not devices:
-            print("\nNo BLE devices found via automatic scan.")
-            print("Troubleshooting steps:")
+            print("\nNo BLE devices found.")
+            print("Troubleshooting:")
             print("  1. Ensure your MeshCore radio is powered on")
             print("  2. Check Bluetooth is enabled: bluetoothctl show")
             print("  3. Try manual scan: meshcli -l")
-            print("  4. If you know the BLE address, you can enter it manually")
-            
-            # Offer manual entry as fallback
-            while True:
-                try:
-                    manual_input = input("\nEnter BLE address manually (format: XX:XX:XX:XX:XX:XX) or 'q' to quit: ").strip()
-                    if manual_input.lower() == 'q':
-                        raise RuntimeError("No BLE device selected")
-                    
-                    # Validate MAC address format
-                    mac_pattern = r'^([0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2})$'
-                    if re.match(mac_pattern, manual_input):
-                        address = manual_input.upper()
-                        name = input("Enter device name (or press Enter for 'Unknown'): ").strip() or 'Unknown'
-                        devices = [{'address': address, 'name': name, 'rssi': None}]
-                        break
-                    else:
-                        print("Invalid MAC address format. Please use format: XX:XX:XX:XX:XX:XX")
-                except KeyboardInterrupt:
-                    raise RuntimeError("Connection cancelled by user")
-            
-            if not devices:
-                raise RuntimeError("No BLE devices available")
+            raise RuntimeError("No BLE devices available")
         
-        # Step 3: User selects device
-        selected_device = _select_ble_device_interactive(devices)
+        # Step 4: Select device (with auto-connect support)
+        selected_device = _select_ble_device(devices, stored_device)
         if not selected_device:
             raise RuntimeError("No BLE device selected")
         
         address = selected_device['address']
         name = selected_device.get('name', 'Unknown')
         
-        # Step 4: Prompt for pairing code
-        print(f"\nSelected device: {name} ({address})")
-        pairing_code = None
-        while True:
-            try:
-                code_input = input("Enter BLE pairing code (or press Enter if not required): ").strip()
-                if code_input:
-                    pairing_code = code_input
-                break
-            except KeyboardInterrupt:
-                raise RuntimeError("Connection cancelled by user")
+        # Step 5: Get pairing code
+        stored_pairing_code = None
+        if stored_device and stored_device.get('address', '').upper() == address.upper():
+            stored_pairing_code = stored_device.get('pairing_code')
         
-        # Step 5: Pair device if pairing code provided
-        pairing_successful = False
+        pairing_code = self._get_pairing_code(name, stored_pairing_code)
+        
+        # Step 6: Pair and connect
         if pairing_code:
             print("Pairing with device...")
-            pairing_successful = self._pair_ble_device(address, pairing_code)
-            if pairing_successful:
-                print("Pairing successful! Waiting for connection to stabilize...")
-                time.sleep(2)  # Wait for connection to stabilize after pairing
-            else:
+            pairing_successful = self._pair_ble_device_meshcli(address, pairing_code)
+            if not pairing_successful:
                 print("Warning: Pairing may have failed, but continuing with connection attempt...")
+            else:
+                time.sleep(2)  # Wait for connection to stabilize
         
-        # Step 6: Test connection using meshcli
+        # Step 7: Test connection
         print("Testing connection...")
-        connection_successful = self._test_ble_connection(address, pairing_code=None)
-        
-        # If pairing succeeded but connection test failed, wait a bit more and retry
-        if not connection_successful and pairing_successful:
-            print("Connection test failed after pairing. Waiting a bit longer and retrying...")
-            time.sleep(3)
-            connection_successful = self._test_ble_connection(address, pairing_code=None)
-        
-        # If still not connected, try one more time
-        if not connection_successful:
-            print("Connection test failed. Attempting to establish connection...")
-            time.sleep(2)
-            connection_successful = self._test_ble_connection(address, pairing_code=None)
+        connection_successful = self._test_ble_connection(address)
         
         if not connection_successful:
-            print("Failed to connect to BLE device. Please check:")
+            print("Connection test failed. Please check:")
             print("  - Device is powered on and in range")
             print("  - Pairing code is correct")
             print("  - Device is not already connected to another system")
             print(f"  - Try manually: meshcli -a {address} infos")
             raise RuntimeError(f"Failed to connect to BLE device {address}")
         
-        # Step 6: Store successful connection
+        # Step 8: Store successful connection
         self.ble_address = address
         self.ble_name = name
         self.ble_pairing_code = pairing_code
         database.store_ble_device(address, name, pairing_code)
+        database.update_ble_device_connection(address)
         print(f"Successfully connected to BLE device: {name} ({address})")
+    
+    def _get_pairing_code(self, device_name: str, stored_pairing_code: Optional[str] = None) -> Optional[str]:
+        """
+        Get pairing code from user.
+        
+        Args:
+            device_name: Name of the device
+            stored_pairing_code: Previously stored pairing code (if any)
+            
+        Returns:
+            Pairing code string, or None if not required
+        """
+        print(f"\nPairing code required for {device_name}")
+        if stored_pairing_code:
+            prompt = f"Enter pairing code (default: {stored_pairing_code}, or press Enter to use default): "
+        else:
+            prompt = "Enter pairing code (or press Enter if not required): "
+        
+        try:
+            code_input = input(prompt).strip()
+            if code_input:
+                return code_input
+            elif stored_pairing_code:
+                return stored_pairing_code
+            return None
+        except KeyboardInterrupt:
+            raise RuntimeError("Pairing cancelled by user")
+    
+    def _pair_ble_device_meshcli(self, address: str, pairing_code: Optional[str] = None) -> bool:
+        """
+        Pair with BLE device using meshcli -P flag.
+        
+        Args:
+            address: BLE MAC address
+            pairing_code: Optional pairing code
+            
+        Returns:
+            True if pairing successful, False otherwise
+        """
+        try:
+            print(f"Pairing with device {address}...")
+            
+            # Use meshcli -P to force OS pairing
+            # If pairing code is needed, it will be prompted by the OS
+            cmd = ["meshcli", "-P", "-a", address, "infos", "-j"]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15.0
+            )
+            
+            if result.returncode == 0:
+                # Check if we got valid output
+                output = result.stdout.strip()
+                if output and ("{" in output or "radio" in output.lower() or "frequency" in output.lower()):
+                    print("Pairing and connection successful!")
+                    return True
+            
+            # If pairing failed, check if we need to provide pairing code via bluetoothctl
+            if pairing_code:
+                print("meshcli pairing may require OS-level pairing first...")
+                # Try bluetoothctl pairing if meshcli didn't work
+                return self._pair_ble_device_bluetoothctl(address, pairing_code)
+            
+            return False
+            
+        except subprocess.TimeoutExpired:
+            print("Pairing timed out")
+            return False
+        except FileNotFoundError:
+            print("meshcli not found. Please install meshcore-cli:")
+            print("  pipx install meshcore-cli")
+            return False
+        except Exception as e:
+            print(f"Error during pairing: {e}")
+            return False
+    
+    def _pair_ble_device_bluetoothctl(self, address: str, pairing_code: str) -> bool:
+        """
+        Pair with BLE device using bluetoothctl (fallback method).
+        
+        Args:
+            address: BLE MAC address
+            pairing_code: Pairing code/PIN
+            
+        Returns:
+            True if pairing successful, False otherwise
+        """
+        try:
+            # Remove device if already paired (to allow re-pairing)
+            subprocess.run(
+                ["bluetoothctl", "remove", address],
+                capture_output=True,
+                timeout=3.0
+            )
+            time.sleep(1)
+            
+            # Pair using bluetoothctl
+            # Note: This is a simplified approach - for full interactive pairing,
+            # you may need to use pexpect or expect, but we'll try the simple method first
+            pair_cmd = ["bluetoothctl", "pair", address]
+            result = subprocess.run(
+                pair_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10.0
+            )
+            
+            # If pairing requires PIN, we'll need user interaction
+            # For now, just return True if the command succeeded
+            if result.returncode == 0 or "successful" in result.stdout.lower():
+                # Trust the device
+                subprocess.run(
+                    ["bluetoothctl", "trust", address],
+                    capture_output=True,
+                    timeout=3.0
+                )
+                time.sleep(1)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"Error pairing with bluetoothctl: {e}")
+            return False
     
     def _pair_ble_device(self, address: str, pairing_code: str) -> bool:
         """
-        Pair with a BLE device using the provided pairing code.
-        
-        First tries meshcli with pairing code if supported, then falls back to bluetoothctl.
+        Pair with BLE device (wrapper for backward compatibility).
         
         Args:
             address: BLE MAC address
@@ -871,364 +868,7 @@ class MeshHandler:
         Returns:
             True if pairing successful, False otherwise
         """
-        try:
-            print(f"Pairing with BLE device {address} using pairing code...")
-            
-            # First, try meshcli with pairing code (if meshcli supports it)
-            try:
-                # Try meshcli connect or pair command with pairing code
-                # Check if meshcli supports pairing code parameter
-                # Common formats: -p, --pin, --pairing-code, --passkey
-                meshcli_pairing_options = [
-                    ["meshcli", "-a", address, "-p", pairing_code, "connect"],
-                    ["meshcli", "-a", address, "--pin", pairing_code, "connect"],
-                    ["meshcli", "-a", address, "--pairing-code", pairing_code, "connect"],
-                    ["meshcli", "-a", address, "--passkey", pairing_code, "connect"],
-                    ["meshcli", "-a", address, "pair", "-p", pairing_code],
-                    ["meshcli", "-a", address, "pair", "--pin", pairing_code],
-                ]
-                
-                for cmd in meshcli_pairing_options:
-                    try:
-                        print(f"Trying meshcli pairing: {' '.join(cmd)}")
-                        result = subprocess.run(
-                            cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=8.0  # Reduced timeout to avoid hanging
-                        )
-                        
-                        # Check if command succeeded
-                        if result.returncode == 0:
-                            print("Pairing/connection successful via meshcli!")
-                            # Don't verify immediately - just return success
-                            # Verification will happen in _test_ble_connection
-                            return True
-                        elif "unknown" not in result.stderr.lower() and "invalid" not in result.stderr.lower() and "error" not in result.stderr.lower():
-                            # If it's not an unknown option error, might have worked
-                            # Try a quick verification (but don't wait long)
-                            try:
-                                test_cmd = ["meshcli", "-a", address, "infos", "-j"]
-                                test_result = subprocess.run(
-                                    test_cmd,
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=3.0  # Very short timeout
-                                )
-                                if test_result.returncode == 0:
-                                    print("Pairing successful via meshcli (verified)!")
-                                    return True
-                            except subprocess.TimeoutExpired:
-                                # Verification timed out, but pairing might have worked
-                                # Return True anyway - verification will happen later
-                                print("Pairing appears successful (verification timed out, will retry later)")
-                                return True
-                            except Exception:
-                                # Verification failed, but continue to next option
-                                pass
-                        # If we get here and it's an unknown option, continue to next option
-                        # If it's a different error, also continue (might be device-specific)
-                    except subprocess.TimeoutExpired:
-                        print(f"Command timed out, trying next option...")
-                        continue
-                    except FileNotFoundError:
-                        # meshcli not found, skip to bluetoothctl
-                        print("meshcli not found, skipping to bluetoothctl...")
-                        break
-                    except Exception as e:
-                        print(f"Error with command: {e}, trying next option...")
-                        continue
-                
-                print("meshcli pairing options not available, trying bluetoothctl...")
-            except Exception as e:
-                print(f"meshcli pairing attempt failed: {e}, trying bluetoothctl...")
-            
-            # Fallback to bluetoothctl pairing
-            # First, remove device if already paired (to allow re-pairing)
-            try:
-                remove_cmd = ["bluetoothctl", "remove", address]
-                subprocess.run(remove_cmd, capture_output=True, timeout=3.0)
-                time.sleep(1)
-            except Exception:
-                pass  # Ignore if device doesn't exist
-            
-            # Use bluetoothctl to pair with the device
-            # We'll use pexpect for interactive pairing
-            if not PEXPECT_AVAILABLE:
-                print("pexpect not available, trying alternative pairing method...")
-                return self._pair_ble_device_alternative(address, pairing_code)
-            
-            try:
-                # Start bluetoothctl in interactive mode
-                child = pexpect.spawn("bluetoothctl", encoding='utf-8', timeout=30)
-                # Enable logging for debugging (comment out in production)
-                # import sys
-                # child.logfile_read = sys.stdout
-                
-                # Wait for initial prompt
-                child.expect([r"\[bluetooth\]#", "# ", "bluetooth"], timeout=5)
-                time.sleep(0.5)
-                
-                # Remove device if exists (to allow re-pairing)
-                child.sendline(f"remove {address}")
-                child.expect([r"Device.*removed", r"not available", r"\[bluetooth\]#", "# "], timeout=5)
-                time.sleep(1)
-                
-                # Scan for device
-                child.sendline("scan on")
-                child.expect([r"Discovery started", r"\[bluetooth\]#", "# "], timeout=5)
-                time.sleep(3)  # Wait for device to be discovered
-                
-                # Pair with device
-                child.sendline(f"pair {address}")
-                
-                # Wait for response - could be immediate success, PIN prompt, or error
-                # We'll use a more flexible pattern matching approach
-                while True:
-                    try:
-                        index = child.expect([
-                            r"Attempting to pair",
-                            r"Request PIN code",
-                            r"Enter PIN code",
-                            r"PIN code",
-                            r"\[agent\] Enter PIN code",
-                            r"\[agent\] PIN code",
-                            r"\[agent\] Request PIN code",
-                            r"Pairing successful",
-                            r"Failed to pair",
-                            r"Already paired",
-                            r"Connection successful",
-                            r"\[bluetooth\]#",
-                            "# ",
-                            pexpect.EOF,
-                            pexpect.TIMEOUT
-                        ], timeout=20)
-                        
-                        # Handle different responses
-                        if index == 0:  # "Attempting to pair" - wait for next message
-                            continue
-                        elif index in [1, 2, 3, 4, 5, 6]:  # PIN prompt variants
-                            print(f"PIN prompt detected. Sending pairing code: {pairing_code}")
-                            time.sleep(0.3)
-                            child.sendline(pairing_code)
-                            
-                            # Wait for pairing result after sending PIN
-                            result_index = child.expect([
-                                r"Pairing successful",
-                                r"Failed to pair",
-                                r"Authentication.*failed",
-                                r"Connection.*failed",
-                                r"\[bluetooth\]#",
-                                "# ",
-                                pexpect.TIMEOUT
-                            ], timeout=15)
-                            
-                            if result_index == 0:  # Pairing successful
-                                print("Pairing successful!")
-                                time.sleep(1)
-                                # Trust the device
-                                child.sendline(f"trust {address}")
-                                child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
-                                child.sendline("scan off")
-                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                                child.sendline("quit")
-                                child.close()
-                                time.sleep(2)
-                                return True
-                            else:
-                                error_msg = child.before + (child.after if hasattr(child, 'after') else "")
-                                print(f"Pairing failed after PIN entry: {error_msg}")
-                                child.sendline("scan off")
-                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                                child.sendline("quit")
-                                child.close()
-                                return False
-                        elif index in [7, 10]:  # Pairing successful or Connection successful
-                            print("Pairing successful (no PIN required)")
-                            time.sleep(1)
-                            # Trust the device
-                            child.sendline(f"trust {address}")
-                            child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
-                            child.sendline("scan off")
-                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                            child.sendline("quit")
-                            child.close()
-                            time.sleep(2)
-                            return True
-                        elif index == 9:  # Already paired
-                            print("Device already paired")
-                            # Trust the device anyway
-                            child.sendline(f"trust {address}")
-                            child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
-                            child.sendline("scan off")
-                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                            child.sendline("quit")
-                            child.close()
-                            time.sleep(1)
-                            return True
-                        elif index == 8:  # Failed to pair
-                            error_msg = child.before + (child.after if hasattr(child, 'after') else "")
-                            print(f"Pairing failed: {error_msg}")
-                            child.sendline("scan off")
-                            child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                            child.sendline("quit")
-                            child.close()
-                            return False
-                        elif index in [11, 12]:  # Prompt returned (might be success or failure)
-                            # Check if we're back at prompt - might mean pairing completed
-                            output = child.before
-                            if "successful" in output.lower() or "paired" in output.lower():
-                                print("Pairing appears successful")
-                                child.sendline(f"trust {address}")
-                                child.expect([r"trust succeeded", r"\[bluetooth\]#", "# "], timeout=5)
-                                child.sendline("scan off")
-                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                                child.sendline("quit")
-                                child.close()
-                                time.sleep(1)
-                                return True
-                            else:
-                                error_msg = output
-                                print(f"Pairing result unclear: {error_msg}")
-                                child.sendline("scan off")
-                                child.expect([r"\[bluetooth\]#", "# "], timeout=3)
-                                child.sendline("quit")
-                                child.close()
-                                return False
-                        elif index in [13, 14]:  # EOF or TIMEOUT
-                            print("Pairing process ended unexpectedly or timed out")
-                            try:
-                                child.sendline("scan off")
-                                child.sendline("quit")
-                                child.close()
-                            except Exception:
-                                pass
-                            return False
-                    except pexpect.EOF:
-                        print("Pairing process ended (EOF)")
-                        try:
-                            child.close()
-                        except Exception:
-                            pass
-                        return False
-                    except pexpect.TIMEOUT:
-                        print("Pairing timed out waiting for response")
-                        try:
-                            child.sendline("scan off")
-                            child.sendline("quit")
-                            child.close()
-                        except Exception:
-                            pass
-                        return False
-                    
-            except pexpect.TIMEOUT:
-                print("Pairing timed out")
-                try:
-                    child.sendline("scan off")
-                    child.sendline("quit")
-                    child.close()
-                except Exception:
-                    pass
-                return False
-            except pexpect.EOF:
-                print("Pairing process ended unexpectedly")
-                try:
-                    child.close()
-                except Exception:
-                    pass
-                return False
-            except Exception as e:
-                print(f"Error during pairing: {e}")
-                try:
-                    child.sendline("scan off")
-                    child.sendline("quit")
-                    child.close()
-                except Exception:
-                    pass
-                return False
-                
-        except Exception as e:
-            print(f"Error pairing BLE device: {e}")
-            return False
-    
-    def _pair_ble_device_alternative(self, address: str, pairing_code: str) -> bool:
-        """
-        Alternative pairing method using bluetoothctl commands.
-        
-        Args:
-            address: BLE MAC address
-            pairing_code: Pairing code/PIN
-        
-        Returns:
-            True if pairing successful, False otherwise
-        """
-        try:
-            # Try using bluetoothctl with expect-like behavior via subprocess
-            # First remove if exists
-            subprocess.run(["bluetoothctl", "remove", address], capture_output=True, timeout=3.0)
-            time.sleep(1)
-            
-            # Try to pair - this is tricky without pexpect, so we'll use a script
-            # Create a temporary expect script
-            import tempfile
-            import os
-            
-            expect_script = f"""#!/usr/bin/expect -f
-set timeout 30
-spawn bluetoothctl
-expect "# "
-send "remove {address}\\r"
-expect "# "
-send "scan on\\r"
-expect "Discovery started"
-sleep 3
-send "pair {address}\\r"
-expect {{
-    "PIN code:" {{ send "{pairing_code}\\r"; exp_continue }}
-    "Enter PIN:" {{ send "{pairing_code}\\r"; exp_continue }}
-    "Pairing successful" {{ send "trust {address}\\r"; expect "trust succeeded"; send "quit\\r"; exit 0 }}
-    "Failed to pair" {{ send "quit\\r"; exit 1 }}
-    timeout {{ send "quit\\r"; exit 1 }}
-}}
-"""
-            
-            # Write expect script to temp file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.exp', delete=False) as f:
-                f.write(expect_script)
-                expect_file = f.name
-            
-            try:
-                os.chmod(expect_file, 0o755)
-                result = subprocess.run(
-                    ["expect", expect_file],
-                    capture_output=True,
-                    text=True,
-                    timeout=30.0
-                )
-                
-                if result.returncode == 0:
-                    print("Pairing successful")
-                    time.sleep(2)
-                    return True
-                else:
-                    print(f"Pairing failed: {result.stderr}")
-                    return False
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(expect_file)
-                except Exception:
-                    pass
-                    
-        except FileNotFoundError:
-            # expect not available, try manual bluetoothctl approach
-            print("expect not available, trying manual pairing...")
-            print(f"Please pair manually: bluetoothctl pair {address}")
-            print(f"When prompted for PIN, enter: {pairing_code}")
-            return False
-        except Exception as e:
-            print(f"Error in alternative pairing: {e}")
-            return False
+        return self._pair_ble_device_meshcli(address, pairing_code)
     
     def _test_ble_connection(self, address: str, pairing_code: Optional[str] = None) -> bool:
         """
@@ -1236,80 +876,34 @@ expect {{
         
         Args:
             address: BLE MAC address
-            pairing_code: Optional pairing code (will be used to pair if provided)
-                          Note: Pairing should be done separately via _pair_ble_device
+            pairing_code: Optional pairing code (kept for compatibility, not used)
         
         Returns:
             True if connection successful, False otherwise
         """
         try:
-            # Note: pairing_code parameter is kept for backward compatibility
-            # but pairing should be done via _pair_ble_device before calling this
-            
-            # Try to connect/establish connection using meshcli
-            # First try a simple command with reasonable timeout
             print(f"Testing connection to {address}...")
             cmd = ["meshcli", "-a", address, "infos", "-j"]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=8.0  # Reasonable timeout - not too long to avoid hanging
+                timeout=8.0
             )
             
             if result.returncode == 0:
-                # Connection successful - verify we got valid output
                 output = result.stdout.strip()
-                if output:
-                    # Check if output contains expected MeshCore data
-                    if "{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"]):
-                        print("Connection successful!")
-                        return True
+                if output and ("{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"])):
+                    print("Connection successful!")
+                    return True
             
-            # If connection failed, show error details
             if result.stderr:
                 print(f"Connection error: {result.stderr.strip()}")
-            if result.stdout:
-                print(f"Connection output: {result.stdout.strip()}")
-            
-            # Try alternative: maybe we need to explicitly connect first
-            print("Trying explicit connect command...")
-            connect_cmds = [
-                ["meshcli", "-a", address, "connect"],
-                ["meshcli", "-a", address, "open"],
-            ]
-            
-            for connect_cmd in connect_cmds:
-                try:
-                    connect_result = subprocess.run(
-                        connect_cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0  # Shorter timeout to avoid hanging
-                    )
-                    if connect_result.returncode == 0:
-                        time.sleep(1)
-                        # Now try infos again
-                        test_result = subprocess.run(
-                            ["meshcli", "-a", address, "infos", "-j"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5.0
-                        )
-                        if test_result.returncode == 0:
-                            print("Connection successful after explicit connect!")
-                            return True
-                except subprocess.TimeoutExpired:
-                    print(f"Connect command timed out, trying next...")
-                    continue
-                except Exception as e:
-                    print(f"Connect command error: {e}, trying next...")
-                    continue
             
             return False
             
         except subprocess.TimeoutExpired:
-            print("Connection test timed out - device may need more time to connect")
+            print("Connection test timed out")
             return False
         except Exception as e:
             print(f"Error testing BLE connection: {e}")
