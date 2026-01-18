@@ -717,7 +717,12 @@ class MeshHandler:
         # Step 5: Check if device is already paired
         is_paired = selected_device.get('is_paired', False)
         
-        # Step 6: Pair only if not already paired
+        # Step 6: Ensure device is trusted and connected at OS level
+        if is_paired:
+            print(f"Device {name} is already paired. Ensuring it's trusted and connected...")
+            self._ensure_device_trusted_and_connected(address)
+        
+        # Step 7: Pair only if not already paired
         pairing_code = None
         if not is_paired:
             stored_pairing_code = None
@@ -734,12 +739,11 @@ class MeshHandler:
                 else:
                     time.sleep(2)  # Wait for connection to stabilize
         else:
-            print(f"Device {name} is already paired. Skipping pairing step.")
             # Get stored pairing code for database storage
             if stored_device and stored_device.get('address', '').upper() == address.upper():
                 pairing_code = stored_device.get('pairing_code')
         
-        # Step 7: Test connection
+        # Step 8: Test connection
         print("Testing connection...")
         connection_successful = self._test_ble_connection(address)
         
@@ -849,6 +853,52 @@ class MeshHandler:
             return False
         except Exception as e:
             print(f"Error during pairing: {e}")
+            return False
+    
+    def _ensure_device_trusted_and_connected(self, address: str) -> bool:
+        """
+        Ensure a BLE device is trusted and connected at the OS level.
+        
+        Args:
+            address: BLE MAC address
+            
+        Returns:
+            True if device is trusted/connected, False otherwise
+        """
+        try:
+            # Trust the device
+            trust_cmd = ["bluetoothctl", "trust", address]
+            trust_result = subprocess.run(
+                trust_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if "succeeded" in trust_result.stdout.lower() or trust_result.returncode == 0:
+                print(f"Device {address} is trusted")
+            time.sleep(1)
+            
+            # Try to connect at OS level
+            connect_cmd = ["bluetoothctl", "connect", address]
+            connect_result = subprocess.run(
+                connect_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10.0
+            )
+            
+            if "successful" in connect_result.stdout.lower() or connect_result.returncode == 0:
+                print(f"Device {address} connected at OS level")
+                time.sleep(2)  # Wait for connection to stabilize
+                return True
+            else:
+                # Connection might have failed, but that's okay - meshcli might still work
+                print(f"OS-level connection attempt completed (meshcli will try next)")
+                return True
+                
+        except Exception as e:
+            print(f"Warning: Could not ensure device is trusted/connected: {e}")
             return False
     
     def _pair_ble_device_bluetoothctl(self, address: str, pairing_code: str) -> bool:
