@@ -858,6 +858,7 @@ class MeshHandler:
     def _ensure_device_trusted_and_connected(self, address: str) -> bool:
         """
         Ensure a BLE device is trusted and connected at the OS level.
+        Also trigger a BLE scan so meshcli can discover the device.
         
         Args:
             address: BLE MAC address
@@ -879,6 +880,14 @@ class MeshHandler:
                 print(f"Device {address} is trusted")
             time.sleep(1)
             
+            # Trigger a BLE scan so meshcli can discover the device
+            # This helps meshcli find the device even if it's already connected
+            print("Scanning for device to make it discoverable by meshcli...")
+            scan_cmd = ["bluetoothctl", "scan", "on"]
+            subprocess.run(scan_cmd, capture_output=True, timeout=2.0)
+            time.sleep(3)  # Give time for scan to discover device
+            subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=2.0)
+            
             # Try to connect at OS level
             connect_cmd = ["bluetoothctl", "connect", address]
             connect_result = subprocess.run(
@@ -890,11 +899,12 @@ class MeshHandler:
             
             if "successful" in connect_result.stdout.lower() or connect_result.returncode == 0:
                 print(f"Device {address} connected at OS level")
-                time.sleep(2)  # Wait for connection to stabilize
+                time.sleep(3)  # Wait longer for connection to fully stabilize
                 return True
             else:
                 # Connection might have failed, but that's okay - meshcli might still work
                 print(f"OS-level connection attempt completed (meshcli will try next)")
+                time.sleep(2)  # Still wait a bit
                 return True
                 
         except Exception as e:
@@ -977,13 +987,23 @@ class MeshHandler:
         try:
             print(f"Testing connection to {address}...")
             
+            # Trigger a quick scan first to help meshcli discover the device
+            # This is especially important if the device was just connected
+            try:
+                scan_cmd = ["bluetoothctl", "scan", "on"]
+                subprocess.run(scan_cmd, capture_output=True, timeout=1.0)
+                time.sleep(2)  # Brief scan
+                subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=1.0)
+            except Exception:
+                pass  # Ignore scan errors
+            
             # First, try without -P flag (for already-paired devices)
             cmd = ["meshcli", "-a", address, "infos", "-j"]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=10.0  # Increased timeout
+                timeout=15.0  # Increased timeout further
             )
             
             if result.returncode == 0:
@@ -995,12 +1015,21 @@ class MeshHandler:
             # If that failed, try with -P flag (force pairing/connection)
             if result.returncode != 0:
                 print("Retrying with forced pairing...")
+                # Trigger another scan before retry
+                try:
+                    scan_cmd = ["bluetoothctl", "scan", "on"]
+                    subprocess.run(scan_cmd, capture_output=True, timeout=1.0)
+                    time.sleep(2)
+                    subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=1.0)
+                except Exception:
+                    pass
+                
                 cmd = ["meshcli", "-P", "-a", address, "infos", "-j"]
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=10.0
+                    timeout=15.0
                 )
                 
                 if result.returncode == 0:
@@ -1017,6 +1046,12 @@ class MeshHandler:
                              if line and not line.startswith('INFO:')]
                 if error_lines:
                     print(f"Connection error: {' '.join(error_lines)}")
+                else:
+                    # Show INFO messages if no other errors
+                    info_lines = [line for line in stderr_text.split('\n') 
+                                if line and line.startswith('INFO:')]
+                    if info_lines:
+                        print(f"Connection info: {' '.join(info_lines[-2:])}")  # Show last 2 INFO lines
             
             return False
             
