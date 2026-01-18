@@ -714,21 +714,30 @@ class MeshHandler:
         address = selected_device['address']
         name = selected_device.get('name', 'Unknown')
         
-        # Step 5: Get pairing code
-        stored_pairing_code = None
-        if stored_device and stored_device.get('address', '').upper() == address.upper():
-            stored_pairing_code = stored_device.get('pairing_code')
+        # Step 5: Check if device is already paired
+        is_paired = selected_device.get('is_paired', False)
         
-        pairing_code = self._get_pairing_code(name, stored_pairing_code)
-        
-        # Step 6: Pair and connect
-        if pairing_code:
-            print("Pairing with device...")
-            pairing_successful = self._pair_ble_device_meshcli(address, pairing_code)
-            if not pairing_successful:
-                print("Warning: Pairing may have failed, but continuing with connection attempt...")
-            else:
-                time.sleep(2)  # Wait for connection to stabilize
+        # Step 6: Pair only if not already paired
+        pairing_code = None
+        if not is_paired:
+            stored_pairing_code = None
+            if stored_device and stored_device.get('address', '').upper() == address.upper():
+                stored_pairing_code = stored_device.get('pairing_code')
+            
+            pairing_code = self._get_pairing_code(name, stored_pairing_code)
+            
+            if pairing_code:
+                print("Pairing with device...")
+                pairing_successful = self._pair_ble_device_meshcli(address, pairing_code)
+                if not pairing_successful:
+                    print("Warning: Pairing may have failed, but continuing with connection attempt...")
+                else:
+                    time.sleep(2)  # Wait for connection to stabilize
+        else:
+            print(f"Device {name} is already paired. Skipping pairing step.")
+            # Get stored pairing code for database storage
+            if stored_device and stored_device.get('address', '').upper() == address.upper():
+                pairing_code = stored_device.get('pairing_code')
         
         # Step 7: Test connection
         print("Testing connection...")
@@ -779,7 +788,7 @@ class MeshHandler:
     
     def _pair_ble_device_meshcli(self, address: str, pairing_code: Optional[str] = None) -> bool:
         """
-        Pair with BLE device using meshcli -P flag.
+        Pair with BLE device using meshcli -P flag or bluetoothctl.
         
         Args:
             address: BLE MAC address
@@ -791,10 +800,30 @@ class MeshHandler:
         try:
             print(f"Pairing with device {address}...")
             
-            # Use meshcli -P to force OS pairing
+            # First try bluetoothctl pairing if pairing code is provided
+            # This ensures OS-level pairing is complete before meshcli tries to connect
+            if pairing_code:
+                print("Pairing at OS level with bluetoothctl...")
+                if self._pair_ble_device_bluetoothctl(address, pairing_code):
+                    print("OS-level pairing successful. Testing meshcli connection...")
+                    time.sleep(2)  # Wait for pairing to settle
+                    # Now try meshcli connection
+                    cmd = ["meshcli", "-a", address, "infos", "-j"]
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=10.0
+                    )
+                    if result.returncode == 0:
+                        output = result.stdout.strip()
+                        if output and ("{" in output or "radio" in output.lower() or "frequency" in output.lower()):
+                            print("Pairing and connection successful!")
+                            return True
+            
+            # Fallback: Try meshcli -P to force OS pairing
             # If pairing code is needed, it will be prompted by the OS
             cmd = ["meshcli", "-P", "-a", address, "infos", "-j"]
-            
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -808,12 +837,6 @@ class MeshHandler:
                 if output and ("{" in output or "radio" in output.lower() or "frequency" in output.lower()):
                     print("Pairing and connection successful!")
                     return True
-            
-            # If pairing failed, check if we need to provide pairing code via bluetoothctl
-            if pairing_code:
-                print("meshcli pairing may require OS-level pairing first...")
-                # Try bluetoothctl pairing if meshcli didn't work
-                return self._pair_ble_device_bluetoothctl(address, pairing_code)
             
             return False
             
@@ -903,12 +926,14 @@ class MeshHandler:
         """
         try:
             print(f"Testing connection to {address}...")
+            
+            # First, try without -P flag (for already-paired devices)
             cmd = ["meshcli", "-a", address, "infos", "-j"]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=8.0
+                timeout=10.0  # Increased timeout
             )
             
             if result.returncode == 0:
@@ -917,8 +942,31 @@ class MeshHandler:
                     print("Connection successful!")
                     return True
             
+            # If that failed, try with -P flag (force pairing/connection)
+            if result.returncode != 0:
+                print("Retrying with forced pairing...")
+                cmd = ["meshcli", "-P", "-a", address, "infos", "-j"]
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=10.0
+                )
+                
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    if output and ("{" in output or any(keyword in output.lower() for keyword in ["radio", "frequency", "meshcore", "node"])):
+                        print("Connection successful!")
+                        return True
+            
+            # Show error details
             if result.stderr:
-                print(f"Connection error: {result.stderr.strip()}")
+                stderr_text = result.stderr.strip()
+                # Filter out INFO messages that are just status updates
+                error_lines = [line for line in stderr_text.split('\n') 
+                             if line and not line.startswith('INFO:')]
+                if error_lines:
+                    print(f"Connection error: {' '.join(error_lines)}")
             
             return False
             
