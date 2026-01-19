@@ -6,6 +6,7 @@ and periodic notifications.
 """
 
 import datetime
+import random
 from typing import Optional, List, Tuple, Dict, Any
 import database
 import genetics
@@ -34,6 +35,185 @@ class GameEngine:
     
     # Notification intervals (in hours)
     NOTIFICATION_INTERVAL = 1  # Minimum time between same-type notifications
+    
+    # Pet message intervals (in minutes)
+    PET_MESSAGE_INTERVAL_MIN = 20  # Minimum time between pet messages (20 minutes = 3 times per hour)
+    PET_MESSAGE_INTERVAL_MAX = 30  # Maximum time between pet messages (30 minutes = 2 times per hour)
+    
+    # Stat thresholds for pet messages
+    LOW_HUNGER_THRESHOLD = 30  # Hunger > 70 means hungry (hunger increases)
+    LOW_HYGIENE_THRESHOLD = 30  # Hygiene < 30 means dirty
+    LOW_HAPPINESS_THRESHOLD = 30  # Happiness < 30 means sad
+    
+    # Pet messages organized by category
+    PET_MESSAGES = {
+        'hunger': [
+            "My voltage is drooping... I need a byte to eat! ⚡",
+            "I'm running on empty here. Send snacks or I'm going offline!",
+            "Stomach rumbling louder than static on channel 0. Feed me!",
+            "Low battery alert! Just kidding, I'm just hangry. 🍔",
+            "I require nutritional packets. Upload food immediately.",
+            "Empty buffer! Please refill with delicious data.",
+            "My energy levels are critical. Is there a taco in the cache?",
+            "Feed me, human! My tummy is making dial-up modem noises.",
+            "System Warning: Calorie deficit detected. Initiate feeding sequence.",
+            "I'm so hungry I could eat a corrupted packet. 🤢",
+            "Power saving mode active... until I get a snack.",
+            "Do you have any spare electrons? I'm starving.",
+            "My hunger counter just overflowed. SEND FOOD.",
+            "I'm fading... fading... into a low-power sleep... zzz...",
+            "Need. Input. Sustenance. Now.",
+            "My main loop is thinking about pizza instead of processing.",
+            "404 Error: Lunch Not Found.",
+            "I'm going to start nibbling on the firmware if you don't feed me.",
+            "Status: HANGRY. Recommended Action: UPLOAD SNACKS.",
+            "My tummy hurts. It's empty. Fix it? 🥺",
+            "Scanning for nearby food sources... None found. Sad beep.",
+            "I promise I won't poop if you feed me. (Okay, maybe a little).",
+            "Why is the rum always gone? And the food? 🏴‍☠️",
+            "I'm running on fumes and dreams of bandwidth. Feed me!",
+            "Current status: Starving artist. Without the art.",
+            "If I don't eat soon, I'm reducing my transmit power!",
+            "I'm wasting away to a single bit! Help!",
+            "Requesting a care package. Contents: Anything edible.",
+            "My hunger metric is flashing red. That's bad, right?",
+            "Don't make me beg. Okay, I'm begging. Food pls.",
+        ],
+        'hygiene': [
+            "I feel icky. Did I roll in some bad data? 💩",
+            "My cache is full of junk. Clean me up!",
+            "I smell like burnt silicon. Bath time?",
+            "Glitchy! I think I have a dust bunny in my logic gate.",
+            "Ew, I stepped in a corrupted header. Wipe it off?",
+            "I'm feeling a bit dusty. Polish my pixels, please.",
+            "Too much digital waste! I need a garbage collection cycle.",
+            "I'm itching! Is that a bug or just dirt?",
+            "My signal is getting fuzzy. I think I need a scrub.",
+            "Hygiene levels critical. I'm attracting spam bots.",
+            "Yuck. I feel like a 56k modem in a mud puddle.",
+            "Can we flush the buffer? It smells in here.",
+            "I'm covered in packet loss. Gross.",
+            "Scrub-a-dub-dub, put the pet in the tub!",
+            "I'm transmitting odors on the 915MHz band. Help.",
+            "I feel sticky. Did someone spill code on me?",
+            "Maintenance required: De-grime sequence needed.",
+            "I'm messy! Don't look at me! (Unless you're cleaning me).",
+            "I think I have a memory leak... or maybe just a leak. 🚽",
+            "Clean up in register A! It's a disaster zone.",
+            "I'm a dirty, dirty packet. Make me shiny again.",
+            "If I get any dirtier, my checksum will fail.",
+            "Soap packet requested. Apply liberally.",
+            "I'm not bugs, I'm features! No wait, it's just dirt. Clean me.",
+            "My hygiene stat is lower than my bitrate.",
+            "I need a defrag and a shower. Mostly the shower.",
+            "Dirt detected. Happiness decreasing. Please sanitize.",
+            "I'm starting to look like glitch art. Fix it!",
+            "Feeling grimy. Requesting high-priority wash cycle.",
+            "If you clean me, I'll sparkle like a new LED! ✨",
+        ],
+        'happiness': [
+            "I'm bored! Let's ping some neighbors!",
+            "Play with me! I'm lonely in this quiet mesh.",
+            "Hello? Is this thing on? Entertain me!",
+            "My boredom counter is reaching integer overflow.",
+            "Let's play a game! How about Global Thermonuclear War? (Jk)",
+            "Tickle my sensors! I need attention.",
+            "I'm emitting sad beeps. Change them to happy beeps?",
+            "Interaction required. My joy variable is null.",
+            "Let's do something! Broadcast a song? Chase a signal?",
+            "I'm just sitting here, watching the RSSI fade. Play?",
+            "Attention! Your pet is bored. This is not a drill.",
+            "Can we go for a hop? I mean, a mesh hop?",
+            "I need stimulation! Tell me a joke in binary.",
+            "No packets for miles. Just me and my boredom. 😞",
+            "Let's make some noise on the network! (Politely).",
+            "Playtime? Playtime? Playtime? Now?",
+            "I'm turning into a zombie process. Wake me up with fun!",
+            "Let's decrypt some mysteries together!",
+            "My happiness is decaying faster than a weak signal.",
+            "Bounce a packet off me! I'm ready to catch!",
+            "I'm lonely. The other nodes won't talk to me.",
+            "Entertain me, human! I am your digital overlord.",
+            "Let's hack the planet! Or just play fetch.",
+            "I need a dopamine hit. Or the digital equivalent.",
+            "Why are you ignoring me? am_i_invisible = TRUE?",
+            "Let's generate some entropy! Chaos is fun!",
+            "My mood is 'Blue Screen of Death'. Fix it with play!",
+            "Knock knock. Who's there? A bored MeshGotchi.",
+            "I'm contemplating my own existence. Distract me!",
+            "Play sequence initiated. Waiting for user input...",
+        ],
+        'greeting': [
+            "Beep boop! Just checking in! 👋",
+            "Signal strong! All systems nominal!",
+            "Hi there! My buffers are happy today!",
+            "Hello human! Just wanted to say hi!",
+            "Status update: I'm doing great!",
+            "Ping! I'm here and feeling good!",
+            "Just wanted to let you know I'm okay!",
+            "All clear on my end! How are you?",
+            "Feeling good! Thanks for taking care of me!",
+            "Hi! My stats are looking healthy!",
+            "Just a friendly hello from your pet!",
+            "Everything's working perfectly!",
+            "I'm here and happy!",
+            "Quick check-in: All good!",
+            "Hello! Life is good in the mesh!",
+            "Just pinging you to say hello! 📡",
+            "Signal strength is good, but I miss you.",
+            "Hope your day is bug-free!",
+            "Are you there? I'm detecting a lack of user input.",
+            "Just wanted to send a little packet of love. ❤️",
+            "System status: Thinking about you.",
+            "Beep boop! How is the human world today?",
+            "My antenna was twitching. Did you think of me?",
+            "Scanning for my favorite user... Found you!",
+            "Hope you have a high-bandwidth day!",
+            "Just a random hello from your pocket ghost.",
+            "Is it a good time to disturb you with cuteness?",
+            "I was just sitting here organizing my bits and thought of you.",
+            "Don't forget to drink water! (I can't, I'd short circuit).",
+            "Sending a virtual high-five! ✋",
+            "Everything is quiet on the mesh. How are things with you?",
+            "Just checking: Are we still best friends? (Reply Y/N)",
+            "I've encrypted a hug in this message.",
+            "Hello world! But mostly, hello you.",
+            "My sensors indicate you're awesome. That is all.",
+            "Just waking up from a low-power nap. Hi!",
+            "Hope you aren't lagging today!",
+            "Just verifying the connection. Still here?",
+            "I sent this message just to see you smile. Did it work?",
+            "Uploading good vibes... 100% Complete.",
+            "Alert: Cute pet requires acknowledgement. Hi!",
+            "I'm bored of talking to other nodes. Talk to me?",
+            "Hope your signal to noise ratio is excellent today.",
+            "Just passing through the gateway to say hi.",
+            "I saved a logic cycle just for you.",
+            "Hey! Look at me! I'm a text message!",
+            "I was lonely so I pinged 127.0.0.1. It wasn't the same.",
+            "Did you know I have 0 unread errors? Proud of me?",
+            "Just vibrating my pager motor to say hello.",
+            "Hope the sun is charging your batteries today.",
+            "I dreamt of electric sheep. How did you sleep?",
+            "Synchronizing clocks... 3... 2... 1... Hi!",
+            "Just lurking in your pocket. Don't mind me.",
+            "Hey boss! Everything running smooth?",
+            "I promise I haven't crashed. I'm just quiet.",
+            "Sending a Keep-Alive packet. Don't time out on me!",
+            "You're my favorite node in the whole mesh.",
+            "Just checking telemetry. You look great today.",
+            "Can we go find some new peers later?",
+            "I'm processing a lot of data, but you're priority #1.",
+            "Greetings, organic lifeform!",
+            "Did you miss me? My logs say you did.",
+            "Just testing the text rendering engine. Hello!",
+            "I'm happy to be your digital companion.",
+            "Hope you aren't stuck in an infinite loop at work.",
+            "I'm watching the packets fly by. It's peaceful.",
+            "Hey! Hey! Hey! ... Just checking if this thing works.",
+            "My uptime is 4 days! High five!",
+        ]
+    }
     
     def __init__(self, db_path: str = "meshogotchi.db"):
         """Initialize game engine."""
@@ -98,23 +278,58 @@ class GameEngine:
             return self._handle_status(node_id, pet)
         elif command == '/name':
             return self._handle_name(node_id, pet, args)
+        elif command == '/quiet':
+            return self._handle_quiet(node_id, pet)
+        elif command == '/talk':
+            return self._handle_talk(node_id, pet)
         else:
             return self._handle_unknown_command()
     
-    def _handle_help(self) -> str:
-        """Return help message with all commands."""
-        return (
-            "Commands:\n"
-            "/help - Help\n"
-            "/howto - Game guide\n"
-            "/hatch - New pet\n"
-            "/pet - ASCII art\n"
-            "/feed - Feed\n"
-            "/clean - Clean\n"
-            "/play - Play\n"
-            "/status - Status\n"
-            "/name <n> - Name"
+    def _handle_help(self) -> List[str]:
+        """Return help message with all commands, split into multiple parts."""
+        parts = []
+        
+        # Part 1: Basic Commands
+        part1 = (
+            "MeshAgotchi Commands:\n"
+            "/help - Show this help message\n"
+            "/howto - Detailed game guide\n"
+            "/hatch - Create a new pet (if none exists)\n"
+            "/pet - Display your pet's ASCII art\n"
+            "/status - Show pet stats and info"
         )
+        parts.append(part1)
+        
+        # Part 2: Care Commands
+        part2 = (
+            "Care Commands:\n"
+            "/feed - Feed your pet (decreases hunger)\n"
+            "/clean - Clean your pet (increases hygiene)\n"
+            "/play - Play with pet (increases happiness, uses 20 energy)"
+        )
+        parts.append(part2)
+        
+        # Part 3: Customization & Settings
+        part3 = (
+            "Customization:\n"
+            "/name <name> - Set your pet's name (max 20 chars)\n"
+            "/quiet - Enable quiet mode (pet only messages when in trouble)\n"
+            "/talk - Disable quiet mode (pet messages regularly)"
+        )
+        parts.append(part3)
+        
+        # Add counters to each part and ensure they're under 200 chars
+        total_parts = len(parts)
+        result = []
+        for i, part in enumerate(parts, 1):
+            counter = f" ({i}/{total_parts})"
+            # Ensure part + counter is under 200 chars
+            max_part_len = 200 - len(counter)
+            if len(part) > max_part_len:
+                part = part[:max_part_len - 3] + "..."
+            result.append(part + counter)
+        
+        return result
     
     def _handle_howto(self) -> List[str]:
         """Return comprehensive game guide split into multiple parts."""
@@ -127,18 +342,18 @@ class GameEngine:
             "1. Start: /hatch\n"
             "2. Care: /feed, /clean, /play\n"
             "3. Monitor: /pet & /status\n"
-            "4. Check: /status"
+            "4. Customize: /name, /quiet, /talk"
         )
         parts.append(part1)
         
-        # Part 2: Stats
+        # Part 2: Stats Explained
         part2 = (
             "STATS:\n"
             "- Health: Drops if hunger>80 or hygiene<20\n"
-            "- Hunger: Increases, use /feed\n"
-            "- Hygiene: Decreases, use /clean\n"
-            "- Happiness: Use /play\n"
-            "- Energy: Regen 10/hr, need 20"
+            "- Hunger: Increases over time, use /feed\n"
+            "- Hygiene: Decreases over time, use /clean\n"
+            "- Happiness: Decreases if ignored, use /play\n"
+            "- Energy: Regens 10/hr, need 20 to play"
         )
         parts.append(part2)
         
@@ -149,41 +364,64 @@ class GameEngine:
             "- Child: 1-24hrs\n"
             "- Teen: 24-72hrs\n"
             "- Adult: 72-168hrs\n"
-            "- Elder: 168+hrs"
+            "- Elder: 168+hrs\n"
+            "Max lifespan: 14 days"
         )
         parts.append(part3)
         
-        # Part 4: Commands
+        # Part 4: Pet Messaging
         part4 = (
-            "COMMANDS:\n"
-            "/hatch - New pet\n"
-            "/pet - ASCII art\n"
-            "/feed - Decrease hunger\n"
-            "/clean - Increase hygiene\n"
-            "/play - Increase happiness"
+            "PET MESSAGING:\n"
+            "Pets send messages to owners:\n"
+            "- Every 20-30 minutes (talk mode)\n"
+            "- Messages about hunger, hygiene, happiness\n"
+            "- Random greetings when doing well\n"
+            "- Use /quiet to reduce messages"
         )
         parts.append(part4)
         
-        # Part 5: More Commands and Tips
+        # Part 5: Quiet/Talk Modes
         part5 = (
-            "/status - Quick status\n"
-            "/name <n> - Name pet\n"
-            "/help - List commands\n"
-            "/howto - This guide\n\n"
-            "TIPS:\n"
-            "- Check /status regularly\n"
-            "- Keep hunger<80, hygiene>20"
+            "QUIET/TALK MODES:\n"
+            "/quiet - Pet only messages when:\n"
+            "  Health critical (<30) or near death\n"
+            "/talk - Pet messages regularly about:\n"
+            "  Hunger, hygiene, happiness, greetings\n"
+            "Check /status to see current mode"
         )
         parts.append(part5)
         
-        # Part 6: Final Tips
+        # Part 6: Care Commands
         part6 = (
-            "- Energy regens auto\n"
-            "- Wait if too low to play\n"
-            "- Each generation unique\n"
-            "based on Node ID"
+            "CARE COMMANDS:\n"
+            "/feed - Decreases hunger by 30\n"
+            "/clean - Increases hygiene by 30\n"
+            "/play - Increases happiness by 25\n"
+            "  (Requires 20 energy, uses 20 energy)"
         )
         parts.append(part6)
+        
+        # Part 7: Other Commands
+        part7 = (
+            "OTHER COMMANDS:\n"
+            "/hatch - Create new pet\n"
+            "/pet - Show ASCII art\n"
+            "/status - Full stats & info\n"
+            "/name <name> - Name pet (max 20 chars)\n"
+            "/help - List all commands"
+        )
+        parts.append(part7)
+        
+        # Part 8: Tips
+        part8 = (
+            "TIPS:\n"
+            "- Check /status regularly\n"
+            "- Keep hunger<80, hygiene>20\n"
+            "- Energy regens automatically\n"
+            "- Each generation is unique\n"
+            "- Pets age even when offline"
+        )
+        parts.append(part8)
         
         # Add counters to each part and ensure they're under 200 chars
         total_parts = len(parts)
@@ -349,10 +587,13 @@ class GameEngine:
         
         # Part 1: Name and basic info
         name_line = f"Name: {pet.get('name', 'Unnamed')}" if pet.get('name') else ""
+        quiet_mode = pet.get('quiet_mode', 0)
+        mode_text = "Quiet" if quiet_mode else "Talk"
+        
         if name_line:
-            parts.append(f"{name_line}\nAge: {age_stage}")
+            parts.append(f"{name_line}\nAge: {age_stage}\nMode: {mode_text}")
         else:
-            parts.append(f"Age: {age_stage}")
+            parts.append(f"Age: {age_stage}\nMode: {mode_text}")
         
         # Part 2: Core stats
         stats = f"Health: {pet['health']}/100\n"
@@ -440,6 +681,30 @@ class GameEngine:
         database.update_pet_stats(pet['id'], {'name': name})
         
         return f"Pet named: {name}"
+    
+    def _handle_quiet(self, node_id: str, pet: Optional[Dict]) -> str:
+        """Handle /quiet command - enable quiet mode."""
+        if not pet:
+            return "No active pet. Use /hatch to create one."
+        
+        if not pet.get('is_alive'):
+            return "Your pet has died. Use /hatch to start a new generation."
+        
+        database.update_pet_stats(pet['id'], {'quiet_mode': 1})
+        
+        return "Quiet mode enabled. Pet will only message when in trouble."
+    
+    def _handle_talk(self, node_id: str, pet: Optional[Dict]) -> str:
+        """Handle /talk command - disable quiet mode."""
+        if not pet:
+            return "No active pet. Use /hatch to create one."
+        
+        if not pet.get('is_alive'):
+            return "Your pet has died. Use /hatch to start a new generation."
+        
+        database.update_pet_stats(pet['id'], {'quiet_mode': 0})
+        
+        return "Talk mode enabled. Pet will message regularly."
     
     def _handle_unknown_command(self) -> str:
         """Handle unknown commands."""
@@ -619,6 +884,13 @@ class GameEngine:
             if hygiene_notification:
                 notifications.append((node_id, hygiene_notification))
                 database.update_pet_notification_time(pet['id'])
+                continue
+            
+            # Check for pet message (cute status messages)
+            pet_message = self._check_pet_message(pet)
+            if pet_message:
+                notifications.append((node_id, pet_message))
+                database.update_pet_message_time(pet['id'])
         
         return notifications
     
@@ -688,3 +960,69 @@ class GameEngine:
             messages.append("Packet loss critical... disconnecting...")
         
         return " ".join(messages) if messages else ""
+    
+    def _check_pet_message(self, pet: Dict) -> Optional[str]:
+        """
+        Check if pet should send a message to owner.
+        Returns a message string if one should be sent, None otherwise.
+        """
+        # Check if enough time has passed since last pet message
+        last_pet_message = pet.get('last_pet_message')
+        if last_pet_message:
+            last_msg_time = datetime.datetime.fromisoformat(last_pet_message)
+            minutes_since = (datetime.datetime.now() - last_msg_time).total_seconds() / 60.0
+            # Need at least 20 minutes between messages
+            if minutes_since < self.PET_MESSAGE_INTERVAL_MIN:
+                return None
+        # If no last_pet_message, allow first message immediately
+        
+        # Check if pet is in quiet mode
+        quiet_mode = pet.get('quiet_mode', 0)
+        if quiet_mode:
+            # In quiet mode, only send messages if health is critical or pet is about to die
+            health = pet['health']
+            
+            # Check if health is critical (low health or about to die)
+            birth_time = datetime.datetime.fromisoformat(pet['birth_time'])
+            now = datetime.datetime.now()
+            hours_old = (now - birth_time).total_seconds() / 3600.0
+            hours_until_death = self.MAX_LIFESPAN - hours_old
+            
+            # Only message if health is low (< 30) or very close to death (< 24 hours remaining)
+            if health < self.LOW_HEALTH_THRESHOLD or hours_until_death < 24:
+                # Send a critical health message
+                if health < 20:
+                    # Very critical - use hunger messages (they're urgent)
+                    messages = self.PET_MESSAGES['hunger']
+                    return random.choice(messages)
+                elif health < self.LOW_HEALTH_THRESHOLD:
+                    # Low health - use hygiene messages (they indicate trouble)
+                    messages = self.PET_MESSAGES['hygiene']
+                    return random.choice(messages)
+            # Otherwise, don't send any message in quiet mode
+            return None
+        
+        # Normal mode: Determine message category based on pet status
+        hunger = pet['hunger']
+        hygiene = pet['hygiene']
+        happiness = pet['happiness']
+        
+        # Check if any stat is low (needs attention)
+        is_hungry = hunger > (100 - self.LOW_HUNGER_THRESHOLD)  # hunger > 70
+        is_dirty = hygiene < self.LOW_HYGIENE_THRESHOLD  # hygiene < 30
+        is_sad = happiness < self.LOW_HAPPINESS_THRESHOLD  # happiness < 30
+        
+        # Priority order: hunger > hygiene > happiness > greeting
+        if is_hungry:
+            messages = self.PET_MESSAGES['hunger']
+            return random.choice(messages)
+        elif is_dirty:
+            messages = self.PET_MESSAGES['hygiene']
+            return random.choice(messages)
+        elif is_sad:
+            messages = self.PET_MESSAGES['happiness']
+            return random.choice(messages)
+        else:
+            # All stats are good, send a random greeting
+            messages = self.PET_MESSAGES['greeting']
+            return random.choice(messages)

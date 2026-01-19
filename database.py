@@ -45,6 +45,7 @@ def init_database():
             birth_time TIMESTAMP NOT NULL,
             last_interaction TIMESTAMP NOT NULL,
             last_notification TIMESTAMP,
+            last_pet_message TIMESTAMP,
             last_age_stage TEXT,
             age_stage TEXT NOT NULL,
             hunger INTEGER DEFAULT 50,
@@ -54,9 +55,26 @@ def init_database():
             health INTEGER DEFAULT 100,
             is_alive BOOLEAN DEFAULT 1,
             death_reason TEXT,
+            quiet_mode BOOLEAN DEFAULT 0,
             FOREIGN KEY (owner_id) REFERENCES users(node_id)
         )
     """)
+    
+    # Migrate existing databases: add missing columns if they don't exist
+    cursor.execute("PRAGMA table_info(pets)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'last_pet_message' not in columns:
+        try:
+            cursor.execute("ALTER TABLE pets ADD COLUMN last_pet_message TIMESTAMP")
+            conn.commit()
+        except Exception:
+            pass  # Column might already exist or migration failed
+    if 'quiet_mode' not in columns:
+        try:
+            cursor.execute("ALTER TABLE pets ADD COLUMN quiet_mode BOOLEAN DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # Column might already exist or migration failed
     
     # Contacts table - maps client names to node IDs
     cursor.execute("""
@@ -255,6 +273,25 @@ def update_pet_notification_time(pet_id: int):
     conn.close()
 
 
+def update_pet_message_time(pet_id: int):
+    """Update last_pet_message timestamp for a pet."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if column exists, if not add it
+    cursor.execute("PRAGMA table_info(pets)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'last_pet_message' not in columns:
+        cursor.execute("ALTER TABLE pets ADD COLUMN last_pet_message TIMESTAMP")
+        conn.commit()
+    
+    now = datetime.datetime.now().isoformat()
+    cursor.execute("UPDATE pets SET last_pet_message = ? WHERE id = ?", (now, pet_id))
+    
+    conn.commit()
+    conn.close()
+
+
 def mark_pet_dead(pet_id: int, reason: str):
     """
     Mark a pet as dead.
@@ -441,7 +478,33 @@ def update_serial_port_connection(port: str):
     conn.close()
 
 
+def clear_database():
+    """
+    Clear all data from the database (delete all rows from all tables).
+    Tables are preserved, only data is removed.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Delete all data from all tables
+    cursor.execute("DELETE FROM pets")
+    cursor.execute("DELETE FROM users")
+    cursor.execute("DELETE FROM contacts")
+    cursor.execute("DELETE FROM serial_ports")
+    
+    conn.commit()
+    conn.close()
+    print("Database cleared successfully!")
+
+
 if __name__ == "__main__":
+    import sys
+    
+    # Check if user wants to clear database
+    if len(sys.argv) > 1 and sys.argv[1] == "--clear":
+        clear_database()
+        sys.exit(0)
+    
     # Test database initialization
     init_database()
     print("Database initialized successfully!")
