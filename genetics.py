@@ -61,11 +61,11 @@ def render_egg_robot(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "  [===]\n [ ? ]\n [===]"
+        return "==[===]==\n=[=?]=\n==[===]=="
     elif variant == 1:
-        return "  +---+\n | ? |\n +---+"
+        return "==+---+==\n=|?|=\n==+---+=="
     else:
-        return "  =====\n [ ? ]\n ====="
+        return "==[===]==\n=[=?]=\n==[===]=="
 
 
 def render_egg_alien(seed: str) -> str:
@@ -74,11 +74,11 @@ def render_egg_alien(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   ( )\n  ( ? )\n   ( )"
+        return "~~( )~~\n~(?)~\n~~( )~~"
     elif variant == 1:
-        return "   * *\n  * ? *\n   * *"
+        return "~~* *~~\n~*?*~\n~~* *~~"
     else:
-        return "   o o\n  o ? o\n   o o"
+        return "~~o o~~\n~o?o~\n~~o o~~"
 
 
 def render_egg_monster(seed: str) -> str:
@@ -87,11 +87,11 @@ def render_egg_monster(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "  >---<\n > ? <\n >---<"
+        return "##>---<##\n#>?<#\n##>---<##"
     elif variant == 1:
-        return "  /---\\\n / ? \\\n /---\\"
+        return "##/---\\##\n#/?\\#\n##/---\\##"
     else:
-        return "  <===>\n < ? >\n <===>"
+        return "##<===>##\n#<?>#\n##<===>##"
 
 
 def render_egg_creature(seed: str) -> str:
@@ -100,11 +100,11 @@ def render_egg_creature(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   ( )\n  ( ? )\n   ( )"
+        return "~~( )~~\n~(?)~\n~~( )~~"
     elif variant == 1:
-        return "   { }\n  { ? }\n   { }"
+        return "~~{ }~~\n~{?}~\n~~{ }~~"
     else:
-        return "   ~ ~\n  ~ ? ~\n   ~ ~"
+        return "~~^ ^~~\n~^?^~\n~~^ ^~~"
 
 
 def render_egg_spirit(seed: str) -> str:
@@ -113,11 +113,11 @@ def render_egg_spirit(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   * *\n  * ? *\n   * *"
+        return "..* *..\n.*?*.\n..* *.."
     elif variant == 1:
-        return "   ~ ~\n  ~ ? ~\n   ~ ~"
+        return "..~ ~..\n.~?~.\n..~ ~.."
     else:
-        return "   . .\n  . ? .\n   . ."
+        return ".....\n..?..\n....."
 
 
 def render_egg_machine(seed: str) -> str:
@@ -126,11 +126,11 @@ def render_egg_machine(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "  #####\n # ? #\n #####"
+        return "==#####==\n=#?#=\n==#####=="
     elif variant == 1:
-        return "  @@@@\n @ ? @\n @@@@"
+        return "==@@@@==\n=@?@=\n==@@@@=="
     else:
-        return "  +-+-+\n | ? |\n +-+-+"
+        return "==+-+-+==\n=|?|=\n==+-+-+=="
 
 
 def render_egg_beast(seed: str) -> str:
@@ -139,11 +139,11 @@ def render_egg_beast(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   ( )\n  ( ? )\n   ( )"
+        return "~~( )~~\n~(?)~\n~~( )~~"
     elif variant == 1:
-        return "   o o\n  o ? o\n   o o"
+        return "~~o o~~\n~o?o~\n~~o o~~"
     else:
-        return "   ^ ^\n  ^ ? ^\n   ^ ^"
+        return "~~^ ^~~\n~^?^~\n~~^ ^~~"
 
 
 def render_egg_entity(seed: str) -> str:
@@ -152,11 +152,11 @@ def render_egg_entity(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   % %\n  % ? %\n   % %"
+        return "%%% %%\n%?%\n%%% %%"
     elif variant == 1:
-        return "   & &\n  & ? &\n   & &"
+        return "&&& &&\n&?&\n&&& &&"
     else:
-        return "   $ $\n  $ ? $\n   $ $"
+        return "$$$ $$\n$?$\n$$$ $$"
 
 
 def render_egg_cyborg(seed: str) -> str:
@@ -165,11 +165,11 @@ def render_egg_cyborg(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "  [ ( ) ]\n [ ( ? ) ]\n [ ( ) ]"
+        return "=[()]=\n=[(?)]=\n=[()]="
     elif variant == 1:
-        return "  ={ }=\n ={ ? }=\n ={ }="
+        return "=={ }==\n={?}=\n=={ }=="
     else:
-        return "  | o |\n | ? |\n | o |"
+        return "==|o|==\n=|?|=\n==|o|=="
 
 
 def render_egg_phantom(seed: str) -> str:
@@ -178,11 +178,11 @@ def render_egg_phantom(seed: str) -> str:
     variant = rng.randint(0, 2)
     
     if variant == 0:
-        return "   . .\n  . ? .\n   . ."
+        return ".....\n..?..\n....."
     elif variant == 1:
-        return "   ' '\n  ' ? '\n   ' '"
+        return "..''..\n.'?'.\n..''.."
     else:
-        return "   : :\n  : ? :\n   : :"
+        return "..::..\n.:?:.\n..::.."
 
 
 def render_egg(pet_type: str, seed: str) -> str:
@@ -225,11 +225,11 @@ def render_child_robot(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n [====]\n | || |\n [====]"
+        return f"=={eye_style}==\n=[====]=\n=|||=\n=[====]=="
     elif body_style == 1:
-        return f"  {eye_style}\n +----+\n | || |\n +----+"
+        return f"=={eye_style}==\n=+----+=\n=|||=\n=+----+=="
     else:
-        return f"  {eye_style}\n ======\n | || |\n ======"
+        return f"=={eye_style}==\n======\n=|||=\n======"
 
 
 def render_child_alien(seed: str) -> str:
@@ -239,11 +239,11 @@ def render_child_alien(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n (    )\n |  ^ |\n (____)"
+        return f"~~{eye_style}~~\n~(~~~~)~\n|^|\n~(____)~"
     elif body_style == 1:
-        return f"  {eye_style}\n /    \\\n |  ^ |\n \\____/"
+        return f"~~{eye_style}~~\n~/~~~~\\~\n|^|\n~\\____/~"
     else:
-        return f"  {eye_style}\n {eye_style}\n |  ^ |\n (____)"
+        return f"~~{eye_style}~~\n~{eye_style}~\n|^|\n~(____)~"
 
 
 def render_child_monster(seed: str) -> str:
@@ -253,11 +253,11 @@ def render_child_monster(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n /    \\\n |  >  |\n \\____/"
+        return f"##{eye_style}##\n#/~~~~\\#\n|>|\n#\\____/#"
     elif body_style == 1:
-        return f"  {eye_style}\n <====>\n |  >  |\n <====>"
+        return f"##{eye_style}##\n#<====>#\n|>|\n#<====>#"
     else:
-        return f"  {eye_style}\n #    #\n |  >  |\n #____#"
+        return f"##{eye_style}##\n#~~~~#\n|>|\n#____#"
 
 
 def render_child_creature(seed: str) -> str:
@@ -267,11 +267,11 @@ def render_child_creature(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n (    )\n |  ^ |\n (____)"
+        return f"~~{eye_style}~~\n~(~~~~)~\n|^|\n~(____)~"
     elif body_style == 1:
-        return f"  {eye_style}\n {{    }}\n |  ^ |\n {{____}}"
+        return f"~~{eye_style}~~\n~{{~~~~}}~\n|^|\n~{{____}}~"
     else:
-        return f"  {eye_style}\n /    \\\n |  ^ |\n \\____/"
+        return f"~~{eye_style}~~\n~/~~~~\\~\n|^|\n~\\____/~"
 
 
 def render_child_spirit(seed: str) -> str:
@@ -281,11 +281,11 @@ def render_child_spirit(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n *    *\n |  ~ |\n *____*"
+        return f"..{eye_style}..\n.*~~~~*.\n|~|\n.*____*."
     elif body_style == 1:
-        return f"  {eye_style}\n ~    ~\n |  ~ |\n ~____~"
+        return f"..{eye_style}..\n.~~~~~~.\n|~|\n.~____~."
     else:
-        return f"  {eye_style}\n .    .\n |  ~ |\n .____."
+        return f"..{eye_style}..\n..~~~~..\n|~|\n..____.."
 
 
 def render_child_machine(seed: str) -> str:
@@ -295,11 +295,11 @@ def render_child_machine(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n #####\n | || |\n #####"
+        return f"=={eye_style}==\n=#####=\n=|||=\n=#####=="
     elif body_style == 1:
-        return f"  {eye_style}\n @@@@@\n | || |\n @@@@@"
+        return f"=={eye_style}==\n=@@@@@=\n=|||=\n=@@@@@=="
     else:
-        return f"  {eye_style}\n +++++\n | || |\n +++++"
+        return f"=={eye_style}==\n=+++++=\n=|||=\n=+++++=="
 
 
 def render_child_beast(seed: str) -> str:
@@ -309,11 +309,11 @@ def render_child_beast(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n /    \\\n |  ^ |\n \\____/"
+        return f"~~{eye_style}~~\n~/~~~~\\~\n|^|\n~\\____/~"
     elif body_style == 1:
-        return f"  {eye_style}\n (    )\n |  ^ |\n (____)"
+        return f"~~{eye_style}~~\n~(~~~~)~\n|^|\n~(____)~"
     else:
-        return f"  {eye_style}\n {{    }}\n |  ^ |\n {{____}}"
+        return f"~~{eye_style}~~\n~{{~~~~}}~\n|^|\n~{{____}}~"
 
 
 def render_child_entity(seed: str) -> str:
@@ -323,11 +323,11 @@ def render_child_entity(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n %    %\n |  ^ |\n %____%"
+        return f"%%{eye_style}%%\n%~~~~%\n|^|\n%____%"
     elif body_style == 1:
-        return f"  {eye_style}\n &    &\n |  ^ |\n &____&"
+        return f"&&{eye_style}&&\n&~~~~&\n|^|\n&____&"
     else:
-        return f"  {eye_style}\n $    $\n |  ^ |\n $____$"
+        return f"$${eye_style}$$\n$~~~~$\n|^|\n$____$"
 
 
 def render_child_cyborg(seed: str) -> str:
@@ -337,11 +337,11 @@ def render_child_cyborg(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n [====]\n | || |\n [====]"
+        return f"=={eye_style}==\n=[====]=\n=|||=\n=[====]=="
     elif body_style == 1:
-        return f"  {eye_style}\n (====)\n | || |\n (====)"
+        return f"=={eye_style}==\n=(====)=\n=|||=\n=(====)=="
     else:
-        return f"  {eye_style}\n ======\n | || |\n ======"
+        return f"=={eye_style}==\n======\n=|||=\n======"
 
 
 def render_child_phantom(seed: str) -> str:
@@ -351,11 +351,11 @@ def render_child_phantom(seed: str) -> str:
     body_style = rng.randint(0, 2)
     
     if body_style == 0:
-        return f"  {eye_style}\n .    .\n |  ~ |\n .____."
+        return f"..{eye_style}..\n..~~~~..\n|~|\n..____.."
     elif body_style == 1:
-        return f"  {eye_style}\n '    '\n |  ~ |\n '____'"
+        return f"..{eye_style}..\n.'~~~~'.\n|~|\n.'____'."
     else:
-        return f"  {eye_style}\n :    :\n |  ~ |\n :____:"
+        return f"..{eye_style}..\n.:~~~~:.\n|~|\n.:____:."
 
 
 def render_child(pet_type: str, seed: str) -> str:
@@ -399,27 +399,27 @@ def render_teen_robot(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("   ||")
-    lines.append(f"  {eye_style}")
+        lines.append("===||===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" [======]")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" [======]")
-        lines.append("  || ||")
+        lines.append("=[======]=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=[======]=")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" +------+")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" +------+")
-        lines.append("  || ||")
+        lines.append("=+------+=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=+------+=")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ========")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" ========")
-        lines.append("  || ||")
+        lines.append("==========")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("==========")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -433,27 +433,27 @@ def render_teen_alien(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("   **")
-    lines.append(f"  {eye_style}")
+        lines.append("~~~**~~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" (      )")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" (______)")
-        lines.append("  || ||")
+        lines.append("~(~~~~~~)~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~(______)~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" /      \\")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" \\______/")
-        lines.append("  || ||")
+        lines.append("~/~~~~~~\\~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~\\______/~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" (      )")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" (______)")
-        lines.append("  || ||")
+        lines.append("~(~~~~~~)~")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append("~(______)~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -467,27 +467,27 @@ def render_teen_monster(seed: str) -> str:
     
     lines = []
     if has_horns:
-        lines.append("   /\\")
-    lines.append(f"  {eye_style}")
+        lines.append("###/\\###")
+    lines.append(f"##{eye_style}##")
     
     if body_variant == 0:
-        lines.append(" /      \\")
-        lines.append(" |  ||  |")
-        lines.append(" |  >>  |")
-        lines.append(" \\______/")
-        lines.append("  || ||")
+        lines.append("#/~~~~~~\\#")
+        lines.append("|~~||~~|")
+        lines.append("|~~>>~~|")
+        lines.append("#\\______/#")
+        lines.append("##|| ||##")
     elif body_variant == 1:
-        lines.append(" <======>")
-        lines.append(" |  ||  |")
-        lines.append(" |  >>  |")
-        lines.append(" <======>")
-        lines.append("  || ||")
+        lines.append("#<======>#")
+        lines.append("|~~||~~|")
+        lines.append("|~~>>~~|")
+        lines.append("#<======>#")
+        lines.append("##|| ||##")
     else:
-        lines.append(" #      #")
-        lines.append(" |  ||  |")
-        lines.append(" |  >>  |")
-        lines.append(" #______#")
-        lines.append("  || ||")
+        lines.append("#~~~~~~~~#")
+        lines.append("|~~||~~|")
+        lines.append("|~~>>~~|")
+        lines.append("#________#")
+        lines.append("##|| ||##")
     
     return '\n'.join(lines)
 
@@ -501,27 +501,27 @@ def render_teen_creature(seed: str) -> str:
     
     lines = []
     if has_ears:
-        lines.append("   ^ ^")
-    lines.append(f"  {eye_style}")
+        lines.append("~~~^ ^~~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" (      )")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" (______)")
-        lines.append("  || ||")
+        lines.append("~(~~~~~~)~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~(______)~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" {      }")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" {______}")
-        lines.append("  || ||")
+        lines.append("~{~~~~~~}~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~{______}~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" /      \\")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" \\______/")
-        lines.append("  || ||")
+        lines.append("~/~~~~~~\\~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~\\______/~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -535,27 +535,27 @@ def render_teen_spirit(seed: str) -> str:
     
     lines = []
     if has_aura:
-        lines.append("   ~~~")
-    lines.append(f"  {eye_style}")
+        lines.append("...~~~...")
+    lines.append(f"..{eye_style}..")
     
     if body_variant == 0:
-        lines.append(" *      *")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" *______*")
-        lines.append("  || ||")
+        lines.append(".*~~~~~~*.")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append(".*______*.")
+        lines.append("..|| ||..")
     elif body_variant == 1:
-        lines.append(" ~      ~")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" ~______~")
-        lines.append("  || ||")
+        lines.append(".~~~~~~~~.")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append(".~______~.")
+        lines.append("..|| ||..")
     else:
-        lines.append(" .      .")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" .______.")
-        lines.append("  || ||")
+        lines.append("..~~~~~~..")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append("..______..")
+        lines.append("..|| ||..")
     
     return '\n'.join(lines)
 
@@ -569,27 +569,27 @@ def render_teen_machine(seed: str) -> str:
     
     lines = []
     if has_panel:
-        lines.append("   ###")
-    lines.append(f"  {eye_style}")
+        lines.append("===###===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" ########")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" ########")
-        lines.append("  || ||")
+        lines.append("=########=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=########=")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" @@@@@@@@")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" @@@@@@@@")
-        lines.append("  || ||")
+        lines.append("=@@@@@@@@=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=@@@@@@@@=")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ++++++++")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" ++++++++")
-        lines.append("  || ||")
+        lines.append("=++++++++=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=++++++++=")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -603,27 +603,27 @@ def render_teen_beast(seed: str) -> str:
     
     lines = []
     if has_mane:
-        lines.append("   ~~~")
-    lines.append(f"  {eye_style}")
+        lines.append("~~~^^^~~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" /      \\")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" \\______/")
-        lines.append("  || ||")
+        lines.append("~/~~~~~~\\~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~\\______/~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" (      )")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" (______)")
-        lines.append("  || ||")
+        lines.append("~(~~~~~~)~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~(______)~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" {      }")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" {______}")
-        lines.append("  || ||")
+        lines.append("~{~~~~~~}~")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("~{______}~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -637,27 +637,27 @@ def render_teen_entity(seed: str) -> str:
     
     lines = []
     if has_symbols:
-        lines.append("   %%%")
-    lines.append(f"  {eye_style}")
+        lines.append("%%% %%%")
+    lines.append(f"%%{eye_style}%%")
     
     if body_variant == 0:
-        lines.append(" %      %")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" %______%")
-        lines.append("  || ||")
+        lines.append("%~~~~~~~~%")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("%______%")
+        lines.append("%%|| ||%%")
     elif body_variant == 1:
-        lines.append(" &      &")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" &______&")
-        lines.append("  || ||")
+        lines.append("&~~~~~~~~&")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("&______&")
+        lines.append("&&|| ||&&")
     else:
-        lines.append(" $      $")
-        lines.append(" |  ||  |")
-        lines.append(" |  ^^  |")
-        lines.append(" $______$")
-        lines.append("  || ||")
+        lines.append("$~~~~~~~~$")
+        lines.append("|~~||~~|")
+        lines.append("|~~^^~~|")
+        lines.append("$______$")
+        lines.append("$$|| ||$$")
     
     return '\n'.join(lines)
 
@@ -671,27 +671,27 @@ def render_teen_cyborg(seed: str) -> str:
     
     lines = []
     if has_tech:
-        lines.append("   [=]")
-    lines.append(f"  {eye_style}")
+        lines.append("===[=]===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" [======]")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" [======]")
-        lines.append("  || ||")
+        lines.append("=[======]=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=[======]=")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" (======)")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" (======)")
-        lines.append("  || ||")
+        lines.append("=(======)=")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("=(======)=")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ========")
-        lines.append(" |  ||  |")
-        lines.append(" | ==== |")
-        lines.append(" ========")
-        lines.append("  || ||")
+        lines.append("==========")
+        lines.append("=|||=")
+        lines.append("=|====|=")
+        lines.append("==========")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -705,27 +705,27 @@ def render_teen_phantom(seed: str) -> str:
     
     lines = []
     if has_glow:
-        lines.append("   ...")
-    lines.append(f"  {eye_style}")
+        lines.append(".....")
+    lines.append(f"..{eye_style}..")
     
     if body_variant == 0:
-        lines.append(" .      .")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" .______.")
-        lines.append("  || ||")
+        lines.append("..~~~~~~..")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append("..______..")
+        lines.append("..|| ||..")
     elif body_variant == 1:
-        lines.append(" '      '")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" '______'")
-        lines.append("  || ||")
+        lines.append(".'~~~~~~'.")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append(".'______'.")
+        lines.append("..|| ||..")
     else:
-        lines.append(" :      :")
-        lines.append(" |  ||  |")
-        lines.append(" |  ~~  |")
-        lines.append(" :______:")
-        lines.append("  || ||")
+        lines.append(".:~~~~~~:.")
+        lines.append("|~~||~~|")
+        lines.append("|~~~~~~|")
+        lines.append(".:______:.")
+        lines.append("..|| ||..")
     
     return '\n'.join(lines)
 
@@ -772,35 +772,35 @@ def render_adult_robot(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("    ||")
+        lines.append("====||====")
     if has_panel:
-        lines.append("   [==]")
-    lines.append(f"  {eye_style}")
+        lines.append("===[==]===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" [========]")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" [========]")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=[========]=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=[========]=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" +--------+")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" +--------+")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=+--------+=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=+--------+=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ==========")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" ==========")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("===========")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("===========")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -815,35 +815,35 @@ def render_adult_alien(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("    **")
+        lines.append("~~~~**~~~~")
     if has_pattern:
-        lines.append("   * * *")
-    lines.append(f"  {eye_style}")
+        lines.append("~~* * *~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" (        )")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" (________)")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~(~~~~~~~~)~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~(________)~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" /        \\")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" \\________/")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~/~~~~~~~~\\~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~\\________/~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" (        )")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" (________)")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~(~~~~~~~~)~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~(________)~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -858,35 +858,35 @@ def render_adult_monster(seed: str) -> str:
     
     lines = []
     if has_horns:
-        lines.append("   /\\/\\")
+        lines.append("###/\\/\\###")
     if has_spikes:
-        lines.append("   >>>>")
-    lines.append(f"  {eye_style}")
+        lines.append("###>>>>###")
+    lines.append(f"##{eye_style}##")
     
     if body_variant == 0:
-        lines.append(" /        \\")
-        lines.append(" |   ||   |")
-        lines.append(" |  >>>>  |")
-        lines.append(" |   ||   |")
-        lines.append(" \\________/")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("#/~~~~~~~~\\#")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~>>>>~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("#\\________/#")
+        lines.append("##|| ||##")
+        lines.append("##|| ||##")
     elif body_variant == 1:
-        lines.append(" <========>")
-        lines.append(" |   ||   |")
-        lines.append(" |  >>>>  |")
-        lines.append(" |   ||   |")
-        lines.append(" <========>")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("#<========>#")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~>>>>~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("#<========>#")
+        lines.append("##|| ||##")
+        lines.append("##|| ||##")
     else:
-        lines.append(" #        #")
-        lines.append(" |   ||   |")
-        lines.append(" |  >>>>  |")
-        lines.append(" |   ||   |")
-        lines.append(" #________#")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("#~~~~~~~~#")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~>>>>~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("#________#")
+        lines.append("##|| ||##")
+        lines.append("##|| ||##")
     
     return '\n'.join(lines)
 
@@ -901,35 +901,35 @@ def render_adult_creature(seed: str) -> str:
     
     lines = []
     if has_ears:
-        lines.append("   ^   ^")
+        lines.append("~~~^   ^~~~")
     if has_tail:
-        lines.append("   ~~~")
-    lines.append(f"  {eye_style}")
+        lines.append("~~~^^^~~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" (        )")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" (________)")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~(~~~~~~~~)~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~(________)~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" {        }")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" {________}")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~{~~~~~~~~}~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~{________}~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" /        \\")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" \\________/")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~/~~~~~~~~\\~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~\\________/~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -944,35 +944,35 @@ def render_adult_spirit(seed: str) -> str:
     
     lines = []
     if has_aura:
-        lines.append("   ~~~~~")
+        lines.append("...~~~~~...")
     if has_glow:
-        lines.append("   ***")
-    lines.append(f"  {eye_style}")
+        lines.append("...***...")
+    lines.append(f"..{eye_style}..")
     
     if body_variant == 0:
-        lines.append(" *        *")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" *________*")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append(".*~~~~~~~~*.")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append(".*________*.")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     elif body_variant == 1:
-        lines.append(" ~        ~")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" ~________~")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append(".~~~~~~~~~.")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append(".~________~.")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     else:
-        lines.append(" .        .")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" .________.")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("..~~~~~~~~..")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("..________..")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     
     return '\n'.join(lines)
 
@@ -987,35 +987,35 @@ def render_adult_machine(seed: str) -> str:
     
     lines = []
     if has_panel:
-        lines.append("   ######")
+        lines.append("===######===")
     if has_tech:
-        lines.append("   @@@@@")
-    lines.append(f"  {eye_style}")
+        lines.append("===@@@@@===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" ##########")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" ##########")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=##########=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=##########=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" @@@@@@@@@@")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" @@@@@@@@@@")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=@@@@@@@@@@=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=@@@@@@@@@@=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ++++++++++")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" ++++++++++")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=++++++++++=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=++++++++++=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -1030,35 +1030,35 @@ def render_adult_beast(seed: str) -> str:
     
     lines = []
     if has_mane:
-        lines.append("   ~~~~~~~")
+        lines.append("~~~^^^^^^^~~~")
     if has_claws:
-        lines.append("   >>>")
-    lines.append(f"  {eye_style}")
+        lines.append("~~~>>>>~~~")
+    lines.append(f"~~{eye_style}~~")
     
     if body_variant == 0:
-        lines.append(" /        \\")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" \\________/")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~/~~~~~~~~\\~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~\\________/~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     elif body_variant == 1:
-        lines.append(" (        )")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" (________)")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~(~~~~~~~~)~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~(________)~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     else:
-        lines.append(" {        }")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" {________}")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("~{~~~~~~~~}~")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("~{________}~")
+        lines.append("~~|| ||~~")
+        lines.append("~~|| ||~~")
     
     return '\n'.join(lines)
 
@@ -1073,35 +1073,35 @@ def render_adult_entity(seed: str) -> str:
     
     lines = []
     if has_symbols:
-        lines.append("   %%%%%")
+        lines.append("%%% %%%%%")
     if has_pattern:
-        lines.append("   &&&")
-    lines.append(f"  {eye_style}")
+        lines.append("&&& &&&")
+    lines.append(f"%%{eye_style}%%")
     
     if body_variant == 0:
-        lines.append(" %        %")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" %________%")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("%~~~~~~~~%")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("%________%")
+        lines.append("%%|| ||%%")
+        lines.append("%%|| ||%%")
     elif body_variant == 1:
-        lines.append(" &        &")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" &________&")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("&~~~~~~~~&")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("&________&")
+        lines.append("&&|| ||&&")
+        lines.append("&&|| ||&&")
     else:
-        lines.append(" $        $")
-        lines.append(" |   ||   |")
-        lines.append(" |  ^^^^  |")
-        lines.append(" |   ||   |")
-        lines.append(" $________$")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("$~~~~~~~~$")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~^^^^~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("$________$")
+        lines.append("$$|| ||$$")
+        lines.append("$$|| ||$$")
     
     return '\n'.join(lines)
 
@@ -1116,35 +1116,35 @@ def render_adult_cyborg(seed: str) -> str:
     
     lines = []
     if has_tech:
-        lines.append("   [====]")
+        lines.append("===[====]===")
     if has_organic:
-        lines.append("   (    )")
-    lines.append(f"  {eye_style}")
+        lines.append("===(    )===")
+    lines.append(f"=={eye_style}==")
     
     if body_variant == 0:
-        lines.append(" [========]")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" [========]")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=[========]=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=[========]=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     elif body_variant == 1:
-        lines.append(" (========)")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" (========)")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("=(========)=")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("=(========)=")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     else:
-        lines.append(" ==========")
-        lines.append(" |   ||   |")
-        lines.append(" | ====== |")
-        lines.append(" |   ||   |")
-        lines.append(" ==========")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("===========")
+        lines.append("=|||=")
+        lines.append("=|======|=")
+        lines.append("=|||=")
+        lines.append("===========")
+        lines.append("==|| ||==")
+        lines.append("==|| ||==")
     
     return '\n'.join(lines)
 
@@ -1159,35 +1159,35 @@ def render_adult_phantom(seed: str) -> str:
     
     lines = []
     if has_glow:
-        lines.append("   .....")
+        lines.append(".....")
     if has_aura:
-        lines.append("   ~~~")
-    lines.append(f"  {eye_style}")
+        lines.append("...~~~...")
+    lines.append(f"..{eye_style}..")
     
     if body_variant == 0:
-        lines.append(" .        .")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" .________.")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append("..~~~~~~~~..")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append("..________..")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     elif body_variant == 1:
-        lines.append(" '        '")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" '________'")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append(".'~~~~~~~~'.")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append(".'________'.")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     else:
-        lines.append(" :        :")
-        lines.append(" |   ||   |")
-        lines.append(" |  ~~~~  |")
-        lines.append(" |   ||   |")
-        lines.append(" :________:")
-        lines.append("  ||   ||")
-        lines.append("  ||   ||")
+        lines.append(".:~~~~~~~~:.")
+        lines.append("|~~~||~~~|")
+        lines.append("|~~~~~~~~|")
+        lines.append("|~~~||~~~|")
+        lines.append(".:________:.")
+        lines.append("..|| ||..")
+        lines.append("..|| ||..")
     
     return '\n'.join(lines)
 
@@ -1235,44 +1235,44 @@ def render_elder_robot(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("     ||")
+        lines.append("=====||=====")
     if has_panel:
-        lines.append("    [==]")
-    lines.append(f"   {eye_style}")
+        lines.append("====[==]====")
+    lines.append(f"==={eye_style}===")
     
     if body_variant == 0:
-        lines.append("  [==========]")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  [==========]")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==[==========]==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==[==========]==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     elif body_variant == 1:
-        lines.append("  +----------+")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  +----------+")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==+----------+==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==+----------+==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     else:
-        lines.append("  ============")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  ============")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==============")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==============")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     
     art = '\n'.join(lines)
     # Ensure within 198 char budget
@@ -1298,44 +1298,44 @@ def render_elder_alien(seed: str) -> str:
     
     lines = []
     if has_antenna:
-        lines.append("     **")
+        lines.append("~~~~~**~~~~~")
     if has_pattern:
-        lines.append("    * * *")
-    lines.append(f"   {eye_style}")
+        lines.append("~~~~* * *~~~~")
+    lines.append(f"~~~{eye_style}~~~")
     
     if body_variant == 0:
-        lines.append("  (          )")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  (__________)")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~(~~~~~~~~~~)~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~(__________)~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     elif body_variant == 1:
-        lines.append("  /          \\")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  \\__________/")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~/~~~~~~~~~~\\~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~\\__________/~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     else:
-        lines.append("  (          )")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  (__________)")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~(~~~~~~~~~~)~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~~~~~~~~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~(__________)~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1359,44 +1359,44 @@ def render_elder_monster(seed: str) -> str:
     
     lines = []
     if has_horns:
-        lines.append("   /\\/\\/\\")
+        lines.append("###/\\/\\/\\###")
     if has_spikes:
-        lines.append("   >>>>>>")
-    lines.append(f"   {eye_style}")
+        lines.append("###>>>>>>###")
+    lines.append(f"###{eye_style}###")
     
     if body_variant == 0:
-        lines.append("  /          \\")
-        lines.append("  |    ||    |")
-        lines.append("  |  >>>>>>  |")
-        lines.append("  |    ||    |")
-        lines.append("  \\__________/")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("##/~~~~~~~~~~\\##")
+        lines.append("##|====||====|##")
+        lines.append("##|~~>>>>>>~~|##")
+        lines.append("##|====||====|##")
+        lines.append("##\\__________/##")
+        lines.append("###||====||###")
+        lines.append("###||====||###")
+        lines.append("##/========\\##")
+        lines.append("#|==WISE==|#")
+        lines.append("##\\________/##")
     elif body_variant == 1:
-        lines.append("  <==========>")
-        lines.append("  |    ||    |")
-        lines.append("  |  >>>>>>  |")
-        lines.append("  |    ||    |")
-        lines.append("  <==========>")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("##<==========>##")
+        lines.append("##|====||====|##")
+        lines.append("##|~~>>>>>>~~|##")
+        lines.append("##|====||====|##")
+        lines.append("##<==========>##")
+        lines.append("###||====||###")
+        lines.append("###||====||###")
+        lines.append("##/========\\##")
+        lines.append("#|==WISE==|#")
+        lines.append("##\\________/##")
     else:
-        lines.append("  #          #")
-        lines.append("  |    ||    |")
-        lines.append("  |  >>>>>>  |")
-        lines.append("  |    ||    |")
-        lines.append("  #__________#")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("##~~~~~~~~~~##")
+        lines.append("##|====||====|##")
+        lines.append("##|~~>>>>>>~~|##")
+        lines.append("##|====||====|##")
+        lines.append("##__________##")
+        lines.append("###||====||###")
+        lines.append("###||====||###")
+        lines.append("##/========\\##")
+        lines.append("#|==WISE==|#")
+        lines.append("##\\________/##")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1420,44 +1420,44 @@ def render_elder_creature(seed: str) -> str:
     
     lines = []
     if has_ears:
-        lines.append("    ^     ^")
+        lines.append("~~~~^     ^~~~~")
     if has_tail:
-        lines.append("    ~~~~~")
-    lines.append(f"   {eye_style}")
+        lines.append("~~~~^^^^^~~~~")
+    lines.append(f"~~~{eye_style}~~~")
     
     if body_variant == 0:
-        lines.append("  (          )")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  (__________)")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~(~~~~~~~~~~)~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~(__________)~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     elif body_variant == 1:
-        lines.append("  {          }")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  {__________}")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~{~~~~~~~~~~}~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~{__________}~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     else:
-        lines.append("  /          \\")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  \\__________/")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~/~~~~~~~~~~\\~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~\\__________/~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1481,44 +1481,44 @@ def render_elder_spirit(seed: str) -> str:
     
     lines = []
     if has_aura:
-        lines.append("    ~~~~~~~")
+        lines.append("....~~~~~~~....")
     if has_glow:
-        lines.append("    *****")
-    lines.append(f"   {eye_style}")
+        lines.append("....*****....")
+    lines.append(f"...{eye_style}...")
     
     if body_variant == 0:
-        lines.append("  *          *")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  *__________*")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("..*~~~~~~~~~~*..")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append("..*__________*..")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     elif body_variant == 1:
-        lines.append("  ~          ~")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  ~__________~")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("..~~~~~~~~~~~~..")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append("..~__________~..")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     else:
-        lines.append("  .          .")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  .__________.")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("...~~~~~~~~~~...")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append("...__________...")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1542,44 +1542,44 @@ def render_elder_machine(seed: str) -> str:
     
     lines = []
     if has_panel:
-        lines.append("    ########")
+        lines.append("====########====")
     if has_tech:
-        lines.append("    @@@@@@@")
-    lines.append(f"   {eye_style}")
+        lines.append("====@@@@@@@====")
+    lines.append(f"==={eye_style}===")
     
     if body_variant == 0:
-        lines.append("  ############")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  ############")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==############==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==############==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     elif body_variant == 1:
-        lines.append("  @@@@@@@@@@@@")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  @@@@@@@@@@@@")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==@@@@@@@@@@@@==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==@@@@@@@@@@@@==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     else:
-        lines.append("  ++++++++++++")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  ++++++++++++")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==++++++++++++==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==++++++++++++==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1603,44 +1603,44 @@ def render_elder_beast(seed: str) -> str:
     
     lines = []
     if has_mane:
-        lines.append("    ~~~~~~~~~")
+        lines.append("~~~~^^^^^^^^^~~~~")
     if has_claws:
-        lines.append("    >>>>>")
-    lines.append(f"   {eye_style}")
+        lines.append("~~~~>>>>>>~~~~")
+    lines.append(f"~~~{eye_style}~~~")
     
     if body_variant == 0:
-        lines.append("  /          \\")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  \\__________/")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~/~~~~~~~~~~\\~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~\\__________/~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     elif body_variant == 1:
-        lines.append("  (          )")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  (__________)")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~(~~~~~~~~~~)~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~(__________)~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     else:
-        lines.append("  {          }")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  {__________}")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("~~{~~~~~~~~~~}~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~|~~^^^^^^~~|~~")
+        lines.append("~~|====||====|~~")
+        lines.append("~~{__________}~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~~||====||~~~")
+        lines.append("~~/========\\~~")
+        lines.append("~|~~WISE~~|~")
+        lines.append("~~\\________/~~")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1664,44 +1664,44 @@ def render_elder_entity(seed: str) -> str:
     
     lines = []
     if has_symbols:
-        lines.append("    %%%%%%%")
+        lines.append("%%%% %%%%%%%")
     if has_pattern:
-        lines.append("    &&&&&")
-    lines.append(f"   {eye_style}")
+        lines.append("&&&& &&&&&")
+    lines.append(f"%%%{eye_style}%%%")
     
     if body_variant == 0:
-        lines.append("  %          %")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  %__________%")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("%%~~~~~~~~~~%%")
+        lines.append("%%|====||====|%%")
+        lines.append("%%|~~^^^^^^~~|%%")
+        lines.append("%%|====||====|%%")
+        lines.append("%%__________%%")
+        lines.append("%%%||====||%%%")
+        lines.append("%%%||====||%%%")
+        lines.append("%%/========\\%%")
+        lines.append("%|==WISE==|%")
+        lines.append("%%\\________/%%")
     elif body_variant == 1:
-        lines.append("  &          &")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  &__________&")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("&&~~~~~~~~~~&&")
+        lines.append("&&|====||====|&&")
+        lines.append("&&|~~^^^^^^~~|&&")
+        lines.append("&&|====||====|&&")
+        lines.append("&&__________&&")
+        lines.append("&&&||====||&&&")
+        lines.append("&&&||====||&&&")
+        lines.append("&&/========\\&&")
+        lines.append("&|==WISE==|&")
+        lines.append("&&\\________/&&")
     else:
-        lines.append("  $          $")
-        lines.append("  |    ||    |")
-        lines.append("  |  ^^^^^^  |")
-        lines.append("  |    ||    |")
-        lines.append("  $__________$")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("$$~~~~~~~~~~$$")
+        lines.append("$$|====||====|$$")
+        lines.append("$$|~~^^^^^^~~|$$")
+        lines.append("$$|====||====|$$")
+        lines.append("$$__________$$")
+        lines.append("$$$||====||$$$")
+        lines.append("$$$||====||$$$")
+        lines.append("$$/========\\$$")
+        lines.append("$|==WISE==|$")
+        lines.append("$$\\________/$$")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1725,44 +1725,44 @@ def render_elder_cyborg(seed: str) -> str:
     
     lines = []
     if has_tech:
-        lines.append("    [====]")
+        lines.append("====[====]====")
     if has_organic:
-        lines.append("    (    )")
-    lines.append(f"   {eye_style}")
+        lines.append("====(    )====")
+    lines.append(f"==={eye_style}===")
     
     if body_variant == 0:
-        lines.append("  [==========]")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  [==========]")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==[==========]==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==[==========]==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     elif body_variant == 1:
-        lines.append("  (==========)")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  (==========)")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==(==========)==")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==(==========)==")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     else:
-        lines.append("  ============")
-        lines.append("  |    ||    |")
-        lines.append("  | ======== |")
-        lines.append("  |    ||    |")
-        lines.append("  ============")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("==============")
+        lines.append("==|====||====|==")
+        lines.append("==|========|==")
+        lines.append("==|====||====|==")
+        lines.append("==============")
+        lines.append("===||====||===")
+        lines.append("===||====||===")
+        lines.append("==/========\\==")
+        lines.append("=|==WISE==|=")
+        lines.append("==\\________/==")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
@@ -1786,44 +1786,44 @@ def render_elder_phantom(seed: str) -> str:
     
     lines = []
     if has_glow:
-        lines.append("    .......")
+        lines.append(".....")
     if has_aura:
-        lines.append("    ~~~~~")
-    lines.append(f"   {eye_style}")
+        lines.append("....~~~~~....")
+    lines.append(f"...{eye_style}...")
     
     if body_variant == 0:
-        lines.append("  .          .")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  .__________.")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append("...~~~~~~~~~~...")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append("...__________...")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     elif body_variant == 1:
-        lines.append("  '          '")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  '__________'")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append(".'~~~~~~~~~~'.")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append(".'__________'.")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     else:
-        lines.append("  :          :")
-        lines.append("  |    ||    |")
-        lines.append("  |  ~~~~~~  |")
-        lines.append("  |    ||    |")
-        lines.append("  :__________:")
-        lines.append("   ||    ||")
-        lines.append("   ||    ||")
-        lines.append("  /        \\")
-        lines.append(" |  WISE  |")
-        lines.append("  \\________/")
+        lines.append(".:~~~~~~~~~~:.")
+        lines.append("..|====||====|..")
+        lines.append("..|~~~~~~~~~~|..")
+        lines.append("..|====||====|..")
+        lines.append(".:__________:.")
+        lines.append("...||====||...")
+        lines.append("...||====||...")
+        lines.append("../========\\..")
+        lines.append(".|==WISE==|.")
+        lines.append("..\\________/..")
     
     art = '\n'.join(lines)
     if count_characters(art) > 198:
