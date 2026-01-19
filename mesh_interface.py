@@ -211,7 +211,7 @@ class MeshHandler:
                     # Test connection by getting device info
                     try:
                         info_result = await self.meshcore.commands.send_device_query()
-                        if info_result.type == EventType.ERROR:
+                        if info_result and info_result.type == EventType.ERROR:
                             raise RuntimeError(f"Connection test failed: {info_result.payload}")
                     except Exception as e:
                         print(f"Warning: Could not verify connection: {e}")
@@ -277,7 +277,7 @@ class MeshHandler:
             # Test connection by getting device info
             try:
                 info_result = await self.meshcore.commands.send_device_query()
-                if info_result.type == EventType.ERROR:
+                if info_result and info_result.type == EventType.ERROR:
                     raise RuntimeError(f"Connection test failed: {info_result.payload}")
             except Exception as e:
                 print(f"Warning: Could not verify connection: {e}")
@@ -319,6 +319,9 @@ class MeshHandler:
         try:
             # Use meshcore_py get_msg with short timeout
             result = await self.meshcore.commands.get_msg(timeout=2.0)
+            
+            if not result:
+                return None
             
             if result.type == EventType.CONTACT_MSG_RECV:
                 payload = result.payload
@@ -431,10 +434,11 @@ class MeshHandler:
             # Send via meshcore_py
             result = await self.meshcore.commands.send_msg(node_id, message)
             
-            if result.type == EventType.MSG_SENT:
-                self.last_send_time = now
-            elif result.type == EventType.ERROR:
-                print(f"Failed to send message: {result.payload}")
+            if result:
+                if result.type == EventType.MSG_SENT:
+                    self.last_send_time = now
+                elif result.type == EventType.ERROR:
+                    print(f"Failed to send message: {result.payload}")
             
         except Exception as e:
             print(f"Error processing message queue: {e}")
@@ -459,6 +463,9 @@ class MeshHandler:
         
         try:
             result = await self.meshcore.commands.get_contacts()
+            
+            if not result:
+                return {}
             
             if result.type == EventType.ERROR:
                 return {}
@@ -609,7 +616,7 @@ class MeshHandler:
         
         try:
             result = await self.meshcore.commands.send_device_query()
-            if result.type == EventType.DEVICE_INFO:
+            if result and result.type == EventType.DEVICE_INFO:
                 info = result.payload
                 if isinstance(info, dict):
                     return info.get("version") or info.get("ver") or info.get("firmware_version")
@@ -624,7 +631,7 @@ class MeshHandler:
         
         try:
             result = await self.meshcore.commands.send_device_query()
-            if result.type == EventType.DEVICE_INFO:
+            if result and result.type == EventType.DEVICE_INFO:
                 info = result.payload
                 if isinstance(info, dict):
                     return info
@@ -667,7 +674,9 @@ class MeshHandler:
             # meshcore_py may use set_name() or set_custom_var() for name
             # Check actual API - this is a placeholder
             result = await self.meshcore.commands.set_name(name)
-            return result.type != EventType.ERROR
+            if result:
+                return result.type != EventType.ERROR
+            return False
         except Exception:
             # Name setting may not be available via API
             return False
@@ -681,6 +690,7 @@ class MeshHandler:
             for i in range(count):
                 # Use send_advert with flood=True
                 result = await self.meshcore.commands.send_advert(flood=True)
+                # Result may be None or an Event - both are acceptable
                 if i < count - 1:
                     await asyncio.sleep(delay)
         except Exception as e:
@@ -694,6 +704,9 @@ class MeshHandler:
         try:
             # Get contacts - these are discovered nodes
             result = await self.meshcore.commands.get_contacts()
+            if not result:
+                return
+            
             if result.type == EventType.ERROR:
                 return
             
