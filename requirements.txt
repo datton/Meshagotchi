@@ -1,3 +1,2 @@
-# Dependencies removed - using meshcore-cli native commands instead
-# bleak>=0.21.0  # No longer needed - using meshcli -l for device discovery
-# pexpect>=4.8.0  # No longer needed - using meshcli -P for pairing
+# Primary dependency for MeshCore communication
+meshcore>=0.1.0

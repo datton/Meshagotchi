@@ -7,7 +7,7 @@ to GameEngine, and handles periodic notifications.
 
 import signal
 import sys
-import time
+import asyncio
 from datetime import datetime, timedelta
 import database
 import mesh_interface
@@ -36,8 +36,8 @@ class MeshAgotchiDaemon:
         print(f"\nReceived signal {signum}. Shutting down gracefully...")
         self.running = False
     
-    def initialize(self):
-        """Initialize database and components."""
+    async def initialize(self):
+        """Initialize database and components (async)."""
         print("Initializing MeshAgotchi...")
         
         # Initialize database
@@ -49,8 +49,11 @@ class MeshAgotchiDaemon:
             max_message_length=200
         )
         
+        # Initialize and connect (async)
+        await self.mesh_handler.initialize()
+        
         # Initialize and configure radio
-        if not self.mesh_handler.initialize_radio():
+        if not await self.mesh_handler.initialize_radio():
             print("Warning: Radio initialization failed. Continuing anyway...")
         
         # Create GameEngine
@@ -64,8 +67,8 @@ class MeshAgotchiDaemon:
         
         print("MeshAgotchi ready. Listening for messages...")
     
-    def run(self):
-        """Main event loop."""
+    async def run(self):
+        """Main event loop (async)."""
         if not self.mesh_handler or not self.game_engine:
             print("Error: Components not initialized!")
             return
@@ -73,7 +76,7 @@ class MeshAgotchiDaemon:
         while self.running:
             try:
                 # Check for incoming messages
-                message = self.mesh_handler.listen()
+                message = await self.mesh_handler.listen()
                 
                 if message:
                     sender_node_id, command_text = message
@@ -94,13 +97,13 @@ class MeshAgotchiDaemon:
                                 if part:
                                     self.mesh_handler.send(sender_node_id, part)
                                     # Small delay between parts to avoid overwhelming the radio
-                                    time.sleep(0.5)
+                                    await asyncio.sleep(0.5)
                         else:
                             # Single string response
                             self.mesh_handler.send(sender_node_id, response)
                 
                 # Process pending messages in queue
-                self.mesh_handler.process_pending_messages()
+                await self.mesh_handler.process_pending_messages()
                 
                 # Periodically discover and add new nodes as friends
                 # This ensures the node can receive messages from anyone
@@ -110,7 +113,7 @@ class MeshAgotchiDaemon:
                 discovery_interval = 60  # Check every 60 seconds
                 time_since_discovery = (datetime.now() - self.last_discovery_check).total_seconds()
                 if time_since_discovery >= discovery_interval:
-                    self.mesh_handler.discover_and_add_nodes()
+                    await self.mesh_handler.discover_and_add_nodes()
                     self.last_discovery_check = datetime.now()
                 
                 # Periodically flood zero-hop adverts throughout the day
@@ -118,29 +121,31 @@ class MeshAgotchiDaemon:
                 now = datetime.now()
                 time_since_advert = (now - self.last_advert_flood).total_seconds()
                 if time_since_advert >= self.advert_flood_interval:
-                    self.mesh_handler.flood_advert(count=5, delay=0.5, zero_hop=True)
+                    await self.mesh_handler.flood_advert(count=5, delay=0.5, zero_hop=True)
                     self.last_advert_flood = now
                 
                 # Check for periodic notifications
                 time_since_check = (now - self.last_notification_check).total_seconds()
                 
                 if time_since_check >= self.notification_interval:
-                    self._check_notifications()
+                    await self._check_notifications()
                     self.last_notification_check = now
                 
                 # Small sleep to avoid busy-waiting
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
                 
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 print(f"Error in main loop: {e}")
-                time.sleep(1)  # Brief pause before retrying
+                await asyncio.sleep(1)  # Brief pause before retrying
         
         print("\nShutting down...")
+        if self.mesh_handler:
+            await self.mesh_handler.disconnect()
     
-    def _check_notifications(self):
-        """Check and send periodic notifications."""
+    async def _check_notifications(self):
+        """Check and send periodic notifications (async)."""
         try:
             notifications = self.game_engine.check_and_send_notifications()
             
@@ -148,24 +153,35 @@ class MeshAgotchiDaemon:
                 self.mesh_handler.send(node_id, message)
             
             # Process notification queue
-            self.mesh_handler.process_pending_messages()
+            await self.mesh_handler.process_pending_messages()
             
         except Exception as e:
             print(f"Error checking notifications: {e}")
 
 
-def main():
-    """Main entry point."""
+async def main_async():
+    """Main async entry point."""
     daemon = MeshAgotchiDaemon()
     
     try:
-        daemon.initialize()
-        daemon.run()
+        await daemon.initialize()
+        await daemon.run()
     except Exception as e:
         print(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
     print("MeshAgotchi daemon stopped.")
+
+
+def main():
+    """Main entry point - runs async main."""
+    try:
+        asyncio.run(main_async())
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

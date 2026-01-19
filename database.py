@@ -68,12 +68,10 @@ def init_database():
         )
     """)
     
-    # BLE devices table - stores successfully connected BLE devices
+    # Serial ports table - stores successfully connected serial ports
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ble_devices (
-            address TEXT PRIMARY KEY,
-            name TEXT,
-            pairing_code TEXT,
+        CREATE TABLE IF NOT EXISTS serial_ports (
+            port TEXT PRIMARY KEY,
             last_connected TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -355,69 +353,59 @@ def get_all_contacts() -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def store_ble_device(address: str, name: str, pairing_code: Optional[str] = None):
+def store_serial_port(port: str):
     """
-    Store or update a BLE device connection info.
+    Store or update a serial port connection info.
     
     Args:
-        address: BLE MAC address (e.g., "C2:2B:A1:D5:3E:B6")
-        name: Device name/advertisement name
-        pairing_code: Pairing code (if provided)
+        port: Serial port path (e.g., "/dev/ttyUSB0")
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    address = address.strip().upper()
-    name = name.strip() if name else None
+    port = port.strip()
     
-    if not address:
+    if not port:
         conn.close()
         return
     
     now = datetime.datetime.now().isoformat()
     
-    # Check if device already exists
-    cursor.execute("SELECT address FROM ble_devices WHERE address = ?", (address,))
+    # Check if port already exists
+    cursor.execute("SELECT port FROM serial_ports WHERE port = ?", (port,))
     exists = cursor.fetchone()
     
     if exists:
-        # Update existing device
-        if pairing_code:
-            cursor.execute("""
-                UPDATE ble_devices 
-                SET name = ?, pairing_code = ?, last_connected = ?
-                WHERE address = ?
-            """, (name, pairing_code, now, address))
-        else:
-            cursor.execute("""
-                UPDATE ble_devices 
-                SET name = ?, last_connected = ?
-                WHERE address = ?
-            """, (name, now, address))
-    else:
-        # Insert new device
+        # Update existing port
         cursor.execute("""
-            INSERT INTO ble_devices (address, name, pairing_code, last_connected, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (address, name, pairing_code, now, now))
+            UPDATE serial_ports 
+            SET last_connected = ?
+            WHERE port = ?
+        """, (now, port))
+    else:
+        # Insert new port
+        cursor.execute("""
+            INSERT INTO serial_ports (port, last_connected, created_at)
+            VALUES (?, ?, ?)
+        """, (port, now, now))
     
     conn.commit()
     conn.close()
 
 
-def get_stored_ble_device() -> Optional[Dict[str, Any]]:
+def get_stored_serial_port() -> Optional[str]:
     """
-    Get the most recently connected BLE device.
+    Get the most recently connected serial port.
     
     Returns:
-        Dictionary with device info (address, name, pairing_code) or None if not found
+        Serial port path or None if not found
     """
     conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT address, name, pairing_code, last_connected 
-        FROM ble_devices 
+        SELECT port, last_connected 
+        FROM serial_ports 
         ORDER BY last_connected DESC 
         LIMIT 1
     """)
@@ -426,28 +414,28 @@ def get_stored_ble_device() -> Optional[Dict[str, Any]]:
     conn.close()
     
     if row:
-        return dict(row)
+        return row['port']
     return None
 
 
-def update_ble_device_connection(address: str):
+def update_serial_port_connection(port: str):
     """
-    Update the last_connected timestamp for a BLE device.
+    Update the last_connected timestamp for a serial port.
     
     Args:
-        address: BLE MAC address
+        port: Serial port path
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    address = address.strip().upper()
+    port = port.strip()
     now = datetime.datetime.now().isoformat()
     
     cursor.execute("""
-        UPDATE ble_devices 
+        UPDATE serial_ports 
         SET last_connected = ?
-        WHERE address = ?
-    """, (now, address))
+        WHERE port = ?
+    """, (now, port))
     
     conn.commit()
     conn.close()
