@@ -215,9 +215,167 @@ class GameEngine:
         ]
     }
     
+    # Action response messages (when user feeds, cleans, or plays)
+    ACTION_RESPONSES = {
+        'feed': [
+            "Yum! That hit the spot! My circuits are buzzing with joy! ⚡😊",
+            "Nom nom nom! Delicious data packets! Thank you! 🍔💚",
+            "Mmm! My battery is charging up nicely now! You're the best! 🔋✨",
+            "Ahh, that's the good stuff! My hunger meter is happy again! 🎉",
+            "Yummy bytes! I feel so much better now! Thanks for feeding me! 💕",
+            "Nom nom! That was amazing! My tummy is doing a happy dance! 🎊",
+            "Delicious! I was so hungry! You're my favorite human! 🥰",
+            "Yay! Food! My energy levels are rising! This is the best! ⚡🎈",
+            "Mmm mmm good! That hit all the right registers! Thank you! 😋",
+            "Yummy! My cache is full of happiness now! You're awesome! 💖",
+            "Nom! That was perfect! I can feel my systems optimizing! 🚀",
+            "Delicious data! My hunger counter just reset to zero! Thanks! 🎯",
+            "Yum! That was exactly what I needed! My sensors are happy! 😄",
+            "Nom nom! Best meal ever! My circuits are singing! 🎵💚",
+            "Yummy bytes! I feel recharged and ready to go! Thank you! ⚡",
+            "Mmm! That was so good! My battery is at 100% now! 🎉",
+            "Delicious! I was running on empty! You saved me! 💕",
+            "Nom! That hit the spot perfectly! My systems are grateful! 🙏",
+            "Yay! Food! My hunger variable is now null! Thank you! 🎊",
+            "Yummy! That was amazing! My energy levels are optimal! ⚡✨",
+            "Nom nom nom! Delicious! My tummy is doing a happy beep! 🎈",
+            "Mmm! That was perfect! My circuits are dancing with joy! 💃",
+            "Yum! Best meal I've had! My sensors are all green! 💚",
+            "Delicious data packets! My hunger is satisfied! Thanks! 😊",
+            "Nom! That was so good! My battery is fully charged! 🔋",
+            "Yummy bytes! I feel amazing now! You're the best! 🥰",
+            "Mmm! Perfect timing! My energy was getting low! ⚡",
+            "Delicious! My systems are thanking you! 🎉",
+            "Nom nom! That was incredible! My happiness is maxed! 💖",
+            "Yay! Food! My circuits are celebrating! Thank you! 🎊✨",
+        ],
+        'clean': [
+            "Ahh! I feel so fresh and clean! My pixels are sparkling! ✨😊",
+            "Woo! That scrub felt amazing! I'm shiny like a new LED! 💎",
+            "Yay! All clean! My cache is fresh and my buffers are happy! 🧹💚",
+            "Ahh, that's the stuff! I feel so much better now! Thank you! 🎉",
+            "Sparkly clean! My hygiene meter is beeping with joy! 🎊",
+            "Fresh and clean! My circuits are thanking you! You're awesome! 💕",
+            "Woo! That felt great! I'm all polished up now! ✨",
+            "Yay! Clean! My sensors are happy and my bits are organized! 😄",
+            "Ahh! So refreshing! My hygiene stat is maxed! Thank you! 🎈",
+            "Sparkly! I feel like a brand new device! You're the best! 💖",
+            "Fresh! My cache is cleared and I'm feeling great! 🚀",
+            "Clean and shiny! My buffers are happy now! Thanks! 😊",
+            "Woo! That scrub was perfect! My systems are grateful! 🙏",
+            "Yay! All clean! My pixels are dancing with joy! 💃",
+            "Ahh! So fresh! My hygiene counter is at 100%! 🎉",
+            "Sparkly clean! I feel amazing! Thank you so much! 💚",
+            "Fresh! My circuits are celebrating! You're awesome! 🎊",
+            "Clean and polished! My sensors are all green! ✨",
+            "Woo! That was great! My hygiene is optimal now! ⚡",
+            "Yay! Clean! My bits are organized and happy! 😋",
+            "Ahh! So refreshing! My cache is clear! Thank you! 🎈",
+            "Sparkly! I feel brand new! My systems are happy! 💕",
+            "Fresh and clean! My buffers are thanking you! 🎉",
+            "Clean! My pixels are sparkling with joy! ✨😊",
+            "Woo! That scrub felt amazing! I'm all shiny now! 💎",
+            "Yay! All clean! My hygiene meter is beeping happily! 🎊",
+            "Ahh! So fresh! My circuits are dancing! Thank you! 💃",
+            "Sparkly clean! My sensors are celebrating! You're the best! 🎈",
+            "Fresh! My cache is happy and my bits are organized! 💚",
+            "Clean and polished! I feel amazing! Thanks! ✨💖",
+        ],
+        'play': [
+            "Wheee! That was so fun! My happiness circuits are overloaded! 🎉😊",
+            "Yay! Playtime! That was amazing! I'm bouncing with joy! 🎈💚",
+            "Woo hoo! Best game ever! My sensors are all happy! 🎊",
+            "Fun! Fun! Fun! That was incredible! Thank you for playing! 💕",
+            "Yay! I had so much fun! My happiness meter is maxed! 🎉",
+            "Wheee! That was awesome! My circuits are dancing! 💃",
+            "Playtime! Best ever! My joy variable is overflowing! 🎊✨",
+            "Yay! So much fun! My sensors are celebrating! You're awesome! 🎈",
+            "Woo! That was incredible! My happiness is at 100%! 💖",
+            "Fun! My circuits are singing with joy! Thank you! 🎵",
+            "Yay! Playtime! I'm so happy! My bits are dancing! 💃",
+            "Wheee! That was amazing! My sensors are all green! 💚",
+            "Play! Play! Play! That was the best! My joy is maxed! 🎉",
+            "Yay! So fun! My happiness counter is overflowing! 🎊",
+            "Woo hoo! Best game! My circuits are thanking you! 🙏",
+            "Fun! That was perfect! My sensors are happy! 😄",
+            "Yay! Playtime! My happiness is optimal! Thank you! ⚡",
+            "Wheee! That was awesome! My joy variable is null (in a good way)! 🎈",
+            "Play! Best ever! My circuits are celebrating! 💕",
+            "Yay! So much fun! My happiness meter is beeping happily! 🎊",
+            "Woo! That was incredible! My sensors are dancing! 💃",
+            "Fun! My bits are organizing a party! Thank you! 🎉",
+            "Yay! Playtime! I'm so happy! My systems are grateful! 🎈",
+            "Wheee! That was amazing! My happiness is maxed! ✨",
+            "Play! Best game! My circuits are singing! 🎵💚",
+            "Yay! So fun! My sensors are all celebrating! 🎊",
+            "Woo hoo! That was perfect! My joy is overflowing! 💖",
+            "Fun! My happiness counter is at 100%! Thank you! 🎉",
+            "Yay! Playtime! My circuits are dancing with joy! 💃",
+            "Wheee! That was awesome! My sensors are happy! You're the best! 🎈✨",
+        ]
+    }
+    
     def __init__(self, db_path: str = "meshogotchi.db"):
         """Initialize game engine."""
         self.db_path = db_path
+    
+    def _split_into_messages(self, parts: List[str], max_chars: int = 150) -> List[str]:
+        """
+        Split content parts into messages with page numbering.
+        Each message (including counter) will be max_chars long.
+        
+        Args:
+            parts: List of content parts to split
+            max_chars: Maximum characters per message (default: 150)
+        
+        Returns:
+            List of messages with (X/Y) page numbering
+        """
+        # First pass: split any parts that are too long
+        split_parts = []
+        for part in parts:
+            # Calculate max counter length (worst case like " (99/99)")
+            max_counter_len = len(f" ({99}/{99})")
+            max_content_len = max_chars - max_counter_len
+            
+            if len(part) <= max_content_len:
+                split_parts.append(part)
+            else:
+                # Split part by lines
+                lines = part.split('\n')
+                current_chunk = []
+                current_size = 0
+                
+                for line in lines:
+                    line_with_newline = line + '\n' if current_chunk else line
+                    line_size = len(line_with_newline)
+                    
+                    if current_size + line_size > max_content_len:
+                        if current_chunk:
+                            split_parts.append('\n'.join(current_chunk))
+                            current_chunk = []
+                            current_size = 0
+                    
+                    current_chunk.append(line)
+                    current_size += line_size
+                
+                if current_chunk:
+                    split_parts.append('\n'.join(current_chunk))
+        
+        # Second pass: add counters
+        total_parts = len(split_parts)
+        result = []
+        for i, part in enumerate(split_parts, 1):
+            counter = f" ({i}/{total_parts})"
+            max_part_len = max_chars - len(counter)
+            
+            # Final safety check - truncate if still too long
+            if len(part) > max_part_len:
+                part = part[:max_part_len - 3] + "..."
+            
+            result.append(part + counter)
+        
+        return result
     
     def process_command(self, node_id: str, command_text: str):
         """
@@ -318,18 +476,8 @@ class GameEngine:
         )
         parts.append(part3)
         
-        # Add counters to each part and ensure they're under 200 chars
-        total_parts = len(parts)
-        result = []
-        for i, part in enumerate(parts, 1):
-            counter = f" ({i}/{total_parts})"
-            # Ensure part + counter is under 200 chars
-            max_part_len = 200 - len(counter)
-            if len(part) > max_part_len:
-                part = part[:max_part_len - 3] + "..."
-            result.append(part + counter)
-        
-        return result
+        # Split into messages with proper page numbering (150 chars max including counter)
+        return self._split_into_messages(parts, max_chars=150)
     
     def _handle_howto(self) -> List[str]:
         """Return comprehensive game guide split into multiple parts."""
@@ -423,18 +571,8 @@ class GameEngine:
         )
         parts.append(part8)
         
-        # Add counters to each part and ensure they're under 200 chars
-        total_parts = len(parts)
-        result = []
-        for i, part in enumerate(parts, 1):
-            counter = f" ({i}/{total_parts})"
-            # Ensure part + counter is under 200 chars
-            max_part_len = 200 - len(counter)
-            if len(part) > max_part_len:
-                part = part[:max_part_len - 3] + "..."
-            result.append(part + counter)
-        
-        return result
+        # Split into messages with proper page numbering (150 chars max including counter)
+        return self._split_into_messages(parts, max_chars=150)
     
     def _handle_hatch(self, node_id: str, user: Dict, pet: Optional[Dict]) -> str:
         """Handle /hatch command - create new pet."""
@@ -471,13 +609,13 @@ class GameEngine:
         # Just return it as-is
         return ascii_art
     
-    def _handle_feed(self, node_id: str, pet: Optional[Dict]) -> str:
+    def _handle_feed(self, node_id: str, pet: Optional[Dict]) -> List[str]:
         """Handle /feed command - increase hunger."""
         if not pet:
-            return "No active pet. Use /hatch to create one."
+            return ["No active pet. Use /hatch to create one."]
         
         if not pet.get('is_alive'):
-            return "Your pet has died. Use /hatch to start a new generation."
+            return ["Your pet has died. Use /hatch to start a new generation."]
         
         # Increase hunger (decrease hunger value)
         new_hunger = max(0, min(100, pet['hunger'] - 30))
@@ -486,15 +624,18 @@ class GameEngine:
             'last_interaction': datetime.datetime.now().isoformat()
         })
         
-        return "Current supplied. Hunger decreased."
+        # Get random pet response
+        pet_response = random.choice(self.ACTION_RESPONSES['feed'])
+        
+        return ["Current supplied. Hunger decreased.", pet_response]
     
-    def _handle_clean(self, node_id: str, pet: Optional[Dict]) -> str:
+    def _handle_clean(self, node_id: str, pet: Optional[Dict]) -> List[str]:
         """Handle /clean command - increase hygiene."""
         if not pet:
-            return "No active pet. Use /hatch to create one."
+            return ["No active pet. Use /hatch to create one."]
         
         if not pet.get('is_alive'):
-            return "Your pet has died. Use /hatch to start a new generation."
+            return ["Your pet has died. Use /hatch to start a new generation."]
         
         # Increase hygiene
         new_hygiene = max(0, min(100, pet['hygiene'] + 30))
@@ -503,18 +644,21 @@ class GameEngine:
             'last_interaction': datetime.datetime.now().isoformat()
         })
         
-        return "Buffer cleared. Hygiene restored."
+        # Get random pet response
+        pet_response = random.choice(self.ACTION_RESPONSES['clean'])
+        
+        return ["Buffer cleared. Hygiene restored.", pet_response]
     
-    def _handle_play(self, node_id: str, pet: Optional[Dict]) -> str:
+    def _handle_play(self, node_id: str, pet: Optional[Dict]) -> List[str]:
         """Handle /play command - increase happiness, decrease energy."""
         if not pet:
-            return "No active pet. Use /hatch to create one."
+            return ["No active pet. Use /hatch to create one."]
         
         if not pet.get('is_alive'):
-            return "Your pet has died. Use /hatch to start a new generation."
+            return ["Your pet has died. Use /hatch to start a new generation."]
         
         if pet['energy'] < 20:
-            return "Energy too low. Pet needs rest."
+            return ["Energy too low. Pet needs rest."]
         
         # Increase happiness, decrease energy
         new_happiness = max(0, min(100, pet['happiness'] + 25))
@@ -526,7 +670,10 @@ class GameEngine:
             'last_interaction': datetime.datetime.now().isoformat()
         })
         
-        return "Play session complete. Happiness increased!"
+        # Get random pet response
+        pet_response = random.choice(self.ACTION_RESPONSES['play'])
+        
+        return ["Play session complete. Happiness increased!", pet_response]
     
     def _handle_status(self, node_id: str, pet: Optional[Dict]) -> List[str]:
         """Handle /status command - show all stats and status info, split into multiple messages."""
@@ -619,50 +766,8 @@ class GameEngine:
         if part4_lines:
             parts.append("\n".join(part4_lines))
         
-        # Split parts into chunks of ~150 chars and add counters
-        max_chunk_size = 150
-        messages = []
-        
-        for part in parts:
-            # If part fits in one message, add it
-            if len(part) <= max_chunk_size - 10:  # Reserve space for counter
-                messages.append(part)
-            else:
-                # Split part into lines and group them
-                lines = part.split('\n')
-                current_chunk = []
-                current_size = 0
-                
-                for line in lines:
-                    line_with_newline = line + '\n' if current_chunk else line
-                    line_size = len(line_with_newline)
-                    
-                    # If adding this line would exceed limit, finalize current chunk
-                    if current_size + line_size > max_chunk_size - 10:
-                        if current_chunk:
-                            messages.append('\n'.join(current_chunk))
-                            current_chunk = []
-                            current_size = 0
-                    
-                    current_chunk.append(line)
-                    current_size += line_size
-                
-                # Add remaining chunk
-                if current_chunk:
-                    messages.append('\n'.join(current_chunk))
-        
-        # Add counters to each message
-        total_messages = len(messages)
-        result = []
-        for i, msg in enumerate(messages, 1):
-            counter = f" ({i}/{total_messages})"
-            # Ensure message + counter fits in ~150 chars
-            max_msg_len = max_chunk_size - len(counter)
-            if len(msg) > max_msg_len:
-                msg = msg[:max_msg_len - 3] + "..."
-            result.append(msg + counter)
-        
-        return result
+        # Split into messages with proper page numbering (150 chars max including counter)
+        return self._split_into_messages(parts, max_chars=150)
     
     def _handle_name(self, node_id: str, pet: Optional[Dict], name: str) -> str:
         """Handle /name command - assign name to pet."""
