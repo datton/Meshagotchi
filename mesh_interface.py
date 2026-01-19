@@ -533,19 +533,25 @@ class MeshHandler:
         lines = text.split('\n')
         is_ascii_art = False
         
-        # Detect ASCII art
+        # Detect ASCII art - look for patterns that indicate ASCII art
+        # ASCII art typically has multiple lines with special characters
         ascii_art_chars = set('|/\\-+*#@$%&()[]{}<>')
         ascii_line_count = 0
         for line in lines:
             if any(c in ascii_art_chars for c in line):
                 ascii_line_count += 1
         
-        if ascii_line_count >= len(lines) * 0.5:
+        # More strict detection: need at least 2 lines with ASCII art chars
+        # and at least 50% of lines should have ASCII art chars
+        if len(lines) >= 2 and ascii_line_count >= max(2, len(lines) * 0.5):
             is_ascii_art = True
         
         if is_ascii_art:
-            sanitized = self._format_ascii_art_for_mobile(text)
+            # For ASCII art, preserve it exactly as-is (it's already validated to be under 198 chars)
+            # Only ensure it's under max_message_length
+            sanitized = text
         else:
+            # For regular text, clean up whitespace
             cleaned_lines = [line.rstrip() for line in lines]
             while cleaned_lines and not cleaned_lines[0].strip():
                 cleaned_lines.pop(0)
@@ -553,26 +559,33 @@ class MeshHandler:
                 cleaned_lines.pop()
             sanitized = '\n'.join(cleaned_lines)
         
-        # Ensure under max length
+        # Ensure under max length (safety check)
         if len(sanitized.encode('utf-8')) > self.max_message_length:
-            while len(sanitized.encode('utf-8')) > self.max_message_length:
-                sanitized = sanitized[:-1]
-            if len(sanitized.encode('utf-8')) < self.max_message_length - 3:
-                sanitized += "..."
+            # Truncate carefully to preserve structure
+            byte_len = len(sanitized.encode('utf-8'))
+            if is_ascii_art:
+                # For ASCII art, try to preserve complete lines
+                lines = sanitized.split('\n')
+                result_lines = []
+                current_bytes = 0
+                for line in lines:
+                    line_bytes = len(line.encode('utf-8')) + 1  # +1 for newline
+                    if current_bytes + line_bytes <= self.max_message_length - 3:
+                        result_lines.append(line)
+                        current_bytes += line_bytes
+                    else:
+                        break
+                sanitized = '\n'.join(result_lines)
+                if len(sanitized.encode('utf-8')) < self.max_message_length - 3:
+                    sanitized += "..."
+            else:
+                # For regular text, truncate character by character
+                while len(sanitized.encode('utf-8')) > self.max_message_length:
+                    sanitized = sanitized[:-1]
+                if len(sanitized.encode('utf-8')) < self.max_message_length - 3:
+                    sanitized += "..."
         
         return sanitized
-    
-    def _format_ascii_art_for_mobile(self, text: str) -> str:
-        """Format ASCII art for mobile display."""
-        lines = text.split('\n')
-        max_width = 40
-        formatted = []
-        for line in lines:
-            if len(line) > max_width:
-                formatted.append(line[:max_width])
-            else:
-                formatted.append(line)
-        return '\n'.join(formatted)
     
     async def initialize_radio(self) -> bool:
         """
