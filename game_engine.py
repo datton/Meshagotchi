@@ -411,11 +411,14 @@ class GameEngine:
                 raise ValueError("Invalid response format from Ollama")
                 
         except requests.exceptions.ConnectionError:
-            raise Exception("Cannot connect to Ollama at 192.168.1.230:11434. Is Ollama running?")
+            raise Exception("Cannot connect to Ollama at 192.168.1.230:11434. Is Ollama running and accessible?")
         except requests.exceptions.Timeout:
             raise Exception("Ollama request timed out. The model may be taking too long to respond.")
         except requests.exceptions.HTTPError as e:
-            raise Exception(f"Ollama API error: {e}")
+            if e.response.status_code == 404:
+                raise Exception(f"Ollama endpoint not found (404). Check: 1) Ollama is running on 192.168.1.230:11434, 2) Model 'minimax-m2' exists (try 'ollama list'), 3) Ollama is bound to 0.0.0.0 not just localhost")
+            else:
+                raise Exception(f"Ollama API error ({e.response.status_code}): {e}")
         except Exception as e:
             raise Exception(f"Error calling Ollama: {e}")
     
