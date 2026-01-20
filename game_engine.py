@@ -393,7 +393,7 @@ class GameEngine:
         """
         ollama_url = "http://192.168.1.230:11434/api/chat"
         payload = {
-            "model": "minimax-m2",  # Using minimax-m2 model
+            "model": "deepseek-r1:8b",  # Using deepseek-r1:8b model
             "messages": [
                 {"role": "user", "content": user_message}
             ],
