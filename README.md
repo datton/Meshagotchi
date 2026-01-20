@@ -17,19 +17,22 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 
 - **Pet Care System**:
   - Health, Hunger, Hygiene, Happiness, and Energy stats
-  - Age stages: Child → Teen → Adult
+  - Age stages: Egg → Child → Teen → Adult → Elder
   - Pet decay over time requiring regular care
   - Death and rebirth system with generational tracking
 
 - **Game Commands**:
   - `/hatch` - Create a new pet
-  - `/stats` - View pet status and ASCII art
+  - `/pet` - Display your pet's ASCII art
+  - `/status` - View pet stats and info
   - `/feed` - Feed your pet (reduces hunger)
   - `/clean` - Clean your pet (improves hygiene)
-  - `/play` - Play with your pet (increases happiness)
-  - `/status` - Quick status check
-  - `/name <name>` - Name your pet
+  - `/play` - Play with your pet (increases happiness, uses 20 energy)
+  - `/name <name>` - Name your pet (max 20 chars)
+  - `/quiet` - Enable quiet mode (pet only messages when in trouble)
+  - `/talk` - Disable quiet mode (pet messages regularly)
   - `/help` - List all commands
+  - `/howto` - Detailed game guide
 
 ### Technical Features
 
@@ -44,16 +47,16 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 ## Hardware Requirements
 
 - **Raspberry Pi**: Any model (Pi 3, Pi 4, Pi Zero 2W, or newer recommended)
-- **Heltec V3 LoRa Radio**: Connected via BLE (Bluetooth Low Energy)
+- **Heltec V3 LoRa Radio**: Connected via USB Serial (ttyUSB)
 - **MicroSD Card**: Minimum 8GB (16GB+ recommended)
 - **Power Supply**: Official Raspberry Pi power adapter
+- **USB Cable**: USB cable to connect Heltec V3 radio to Raspberry Pi
 
 ## Software Requirements
 
 - Raspberry Pi OS (64-bit) - Bookworm or newer
 - Python 3.10 or higher
-- MeshCore CLI (meshcore-cli)
-- Bleak library (for BLE scanning) - `pip3 install bleak`
+- meshcore Python package - `pip install meshcore`
 - MeshCore-compatible firmware on Heltec V3 radio
 
 ## Quick Start
@@ -69,32 +72,26 @@ For detailed installation instructions, see [INSTALL.md](INSTALL.md).
 git clone https://github.com/datton/Meshagotchi.git
 cd Meshogotchi
 
-# Install MeshCore CLI (see INSTALL.md for details)
-cd ~
-git clone https://github.com/meshcore-dev/meshcore-cli.git
-cd meshcore-cli
+# Create virtual environment (recommended)
 python3 -m venv venv
 source venv/bin/activate
-pip install meshcore
-pip install .
 
-# Install Bleak for BLE scanning (recommended)
-pip3 install bleak
+# Install dependencies
+pip install -r requirements.txt
 
 # Run MeshAgotchi
-cd ~/Meshagotchi
 python3 main.py
 ```
 
 ### Running as a Service
 
-MeshAgotchi can run as a systemd service for automatic startup. See [INSTALL.md](INSTALL.md#step-7-set-up-as-system-service-optional-but-recommended) for setup instructions.
+MeshAgotchi can run as a systemd service for automatic startup. See [INSTALL.md](INSTALL.md#step-6-set-up-as-system-service-optional-but-recommended) for setup instructions.
 
 ## Usage
 
 ### Starting the Game
 
-1. Ensure your Heltec V3 radio is powered on and Bluetooth is enabled on your Raspberry Pi
+1. Ensure your Heltec V3 radio is powered on and connected via USB to your Raspberry Pi
 2. Run the daemon:
    ```bash
    python3 main.py
@@ -106,12 +103,16 @@ Send commands to your MeshAgotchi node from another MeshCore-compatible device (
 
 ```
 /hatch          # Create your first pet
-/stats           # View your pet's status and ASCII art
+/pet            # Display your pet's ASCII art
+/status         # View pet stats and info
 /feed            # Feed your pet
 /clean           # Clean your pet
 /play            # Play with your pet
 /name Fluffy     # Name your pet
-/help            # Get help
+/quiet           # Enable quiet mode
+/talk            # Disable quiet mode
+/help            # List all commands
+/howto           # Detailed game guide
 ```
 
 ### How It Works
@@ -136,23 +137,34 @@ MeshAgotchi
 
 ### Key Components
 
-- **MeshHandler**: Manages all MeshCore CLI communication, advertising, and message handling
+- **MeshHandler**: Manages all MeshCore communication via USB Serial, advertising, and message handling
 - **GameEngine**: Processes game commands and manages pet state
 - **Database**: Handles user and pet data persistence
 - **Genetics**: Generates unique pets based on Node ID and generation
 
 ## Configuration
 
-### BLE Connection
+### USB Serial Connection
 
 On first run, MeshAgotchi will:
-1. Check for a previously connected BLE device
-2. If not found, scan for available BLE MeshCore devices
-3. Display a numbered list for you to select your device
-4. Prompt for the BLE pairing code
-5. Connect and store the device info for future use
+1. Check for a previously connected serial port in the database
+2. If not found, automatically detect available USB serial devices (ttyUSB0, ttyUSB1, etc.)
+3. If multiple devices are found, display a numbered list for you to select
+4. If only one device is found, it will be auto-selected
+5. Connect to the selected serial port and store it for future use
 
-Subsequent runs will automatically connect to the stored device.
+Subsequent runs will automatically connect to the stored serial port.
+
+**Common serial ports:**
+- `/dev/ttyUSB0` - Most common USB serial adapter
+- `/dev/ttyUSB1` - Second USB serial adapter
+- `/dev/ttyACM0` - USB CDC device
+
+**Note**: You may need to add your user to the `dialout` group to access serial ports:
+```bash
+sudo usermod -a -G dialout $USER
+# Then log out and log back in
+```
 
 ### Radio Configuration
 
@@ -175,7 +187,7 @@ The radio name is automatically set to "Meshagotchi" at startup.
 
 ### Project Structure
 
-- **Standard Library Only**: Uses only Python standard library modules (no external dependencies)
+- **Minimal Dependencies**: Only requires the `meshcore` Python package
 - **Modular Design**: Clean separation of concerns between mesh communication, game logic, and data persistence
 - **Extensible**: Easy to add new commands or game features
 
@@ -202,29 +214,30 @@ The radio name is automatically set to "Meshagotchi" at startup.
 
 **"Warning: Could not retrieve radio link info"**
 - This is usually harmless. The node should still function correctly.
-- Verify radio connection: `meshcli -a <BLE_ADDRESS> infos`
+- Verify radio connection by checking if the serial port is accessible
 
-**"MeshCore CLI not found"**
-- Ensure meshcore-cli is installed and in PATH
-- Check: `which meshcli` or `which meshcore-cli`
-- See [INSTALL.md](INSTALL.md#step-3-install-meshcore-cli) for installation
+**"Permission denied accessing /dev/ttyUSB0"**
+- Add your user to the `dialout` group: `sudo usermod -a -G dialout $USER`
+- Log out and log back in for changes to take effect
+- Verify with: `groups` (should show `dialout`)
 
-**"No BLE devices found"**
-- Ensure your MeshCore radio is powered on and in range
-- Check Bluetooth is enabled on Raspberry Pi: `bluetoothctl show`
-- Try scanning manually: `meshcli -l`
-- Ensure radio is in pairing/discoverable mode
+**"Serial port not found"**
+- Ensure your Heltec V3 radio is powered on and connected via USB
+- Check if device is detected: `ls -l /dev/ttyUSB*` or `ls -l /dev/ttyACM*`
+- Try unplugging and reconnecting the USB cable
+- Verify the device appears: `dmesg | tail` (should show USB device connection)
 
-**"Failed to connect to BLE device"**
-- Verify pairing code is correct
-- Check device is not already connected to another system
-- Try removing and re-pairing: `bluetoothctl remove <ADDRESS>` then reconnect
+**"Failed to connect to serial port"**
+- Check if another program is using the port: `lsof /dev/ttyUSB0`
+- Verify the port exists: `ls -l /dev/ttyUSB0`
+- Try a different USB port or cable
+- Ensure the radio firmware is MeshCore-compatible
 
 **Other nodes can't see MeshAgotchi**
-- Verify radio is connected via BLE
-- Check radio name is set: `meshcli -a <BLE_ADDRESS> infos`
+- Verify radio is connected via USB Serial
+- Check radio name is set (should be "Meshagotchi" automatically)
 - Ensure adverts are being sent (check logs)
-- Verify both nodes are on the same frequency/preset
+- Verify both nodes are on the same frequency/preset (USA/Canada preset: 910.525 MHz)
 
 For more troubleshooting, see [INSTALL.md](INSTALL.md#troubleshooting).
 
@@ -247,7 +260,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - [MeshCore](https://github.com/meshcore-dev/MeshCore) - The mesh networking protocol
-- [meshcore-cli](https://github.com/meshcore-dev/meshcore-cli) - The CLI interface used for communication
+- [meshcore Python package](https://pypi.org/project/meshcore/) - Python library for MeshCore communication
 - Inspired by Tamagotchi and other virtual pet games
 
 ## Links
@@ -255,7 +268,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Repository**: https://github.com/datton/Meshagotchi
 - **Installation Guide**: [INSTALL.md](INSTALL.md)
 - **MeshCore Documentation**: https://github.com/meshcore-dev/MeshCore
-- **MeshCore CLI**: https://github.com/meshcore-dev/meshcore-cli
+- **meshcore Python Package**: https://pypi.org/project/meshcore/
 
 ## Status
 

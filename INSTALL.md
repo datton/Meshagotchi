@@ -7,7 +7,8 @@ Complete installation instructions for MeshAgotchi on a fresh Raspberry Pi.
 - **Raspberry Pi**: Any model (Pi 3, Pi 4, Pi Zero 2W, or newer recommended)
 - **MicroSD Card**: Minimum 8GB (16GB+ recommended)
 - **Power Supply**: Official Raspberry Pi power adapter (5V, 2.5A+ for Pi 4)
-- **Heltec V3 LoRa Radio**: Connected via BLE (Bluetooth Low Energy)
+- **Heltec V3 LoRa Radio**: Connected via USB Serial (ttyUSB)
+- **USB Cable**: USB cable to connect Heltec V3 radio to Raspberry Pi
 - **Network**: Ethernet cable or Wi-Fi for initial setup
 
 ## Step 1: Install Raspberry Pi OS
@@ -18,7 +19,7 @@ Complete installation instructions for MeshAgotchi on a fresh Raspberry Pi.
 
 As of 2025, use **Raspberry Pi OS (64-bit)** based on Debian Bookworm or Trixie. This provides:
 - Python 3.11+ support
-- Better BLE (Bluetooth Low Energy) support
+- Better USB Serial support
 - Improved performance
 
 ### Installation Steps
@@ -77,73 +78,7 @@ sudo reboot
 
 Wait for reboot, then reconnect via SSH or direct connection.
 
-## Step 3: Install MeshCore CLI
-
-MeshAgotchi requires the MeshCore CLI to communicate via LoRa radio.
-
-### Install MeshCore CLI
-
-```bash
-# Clone MeshCore CLI repository
-cd ~
-git clone https://github.com/meshcore-dev/meshcore-cli.git
-cd meshcore-cli
-
-# Create a virtual environment (required for modern Raspberry Pi OS)
-python3 -m venv venv
-
-# Activate the virtual environment
-source venv/bin/activate
-
-# Install dependencies and meshcore-cli
-pip install meshcore
-pip install .
-
-# Verify installation
-which meshcli
-meshcli -v
-```
-
-### Make meshcli Available System-Wide
-
-To make the `meshcli` command available without activating the virtual environment:
-
-```bash
-# Create ~/.local/bin directory if it doesn't exist
-mkdir -p ~/.local/bin
-
-# Add ~/.local/bin to PATH (if not already there)
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Create symlink from venv to ~/.local/bin
-ln -s ~/meshcore-cli/venv/bin/meshcli ~/.local/bin/meshcli
-
-# Verify it works
-which meshcli
-meshcli -v
-```
-
-**Note**: The MeshCore CLI command is `meshcli` (not `meshcore`). If installation instructions differ, follow the official documentation at https://github.com/meshcore-dev/meshcore-cli
-
-### Verify Bluetooth Support
-
-```bash
-# Check if Bluetooth is available
-bluetoothctl show
-
-# If Bluetooth is not available, install Bluetooth packages:
-sudo apt install -y bluez bluez-tools
-
-# Enable Bluetooth service
-sudo systemctl enable bluetooth
-sudo systemctl start bluetooth
-
-# Verify Bluetooth is running
-sudo systemctl status bluetooth
-```
-
-## Step 4: Install MeshAgotchi
+## Step 3: Install MeshAgotchi
 
 ### Clone Repository
 
@@ -167,7 +102,7 @@ python3 --version
 
 ### Install Dependencies
 
-MeshAgotchi requires one external package for BLE scanning: **Bleak**
+MeshAgotchi requires the `meshcore` Python package for MeshCore communication.
 
 #### Option 1: Install with Virtual Environment (Recommended)
 
@@ -197,14 +132,11 @@ which python3
 # Step 5: Upgrade pip (recommended)
 python3 -m pip install --upgrade pip
 
-# Step 6: Install Bleak using python3 -m pip (more reliable)
-python3 -m pip install bleak
-
-# Or install from requirements file
+# Step 6: Install dependencies from requirements file
 python3 -m pip install -r requirements.txt
 
 # Step 7: Verify installation
-python3 -c "import bleak; print('Bleak installed successfully')"
+python3 -c "import meshcore; print('meshcore installed successfully')"
 
 # Deactivate virtual environment when done (optional)
 # deactivate
@@ -223,7 +155,7 @@ which python3
 # Both should point to venv/bin/ directory
 
 # Use python3 -m pip instead of just pip
-python3 -m pip install bleak
+python3 -m pip install -r requirements.txt
 ```
 
 **To run MeshAgotchi with the virtual environment:**
@@ -240,17 +172,12 @@ python3 main.py
 #### Option 2: Install System-Wide (Alternative)
 
 ```bash
-# Install Bleak system-wide (requires sudo)
-sudo pip3 install bleak
-
-# Or install from requirements file
+# Install meshcore system-wide (requires sudo)
 sudo pip3 install -r requirements.txt
 ```
 
-**Note**: Bleak is the modern standard for BLE operations on Linux/Raspberry Pi. If Bleak is not installed, MeshAgotchi will fall back to using `meshcli -l` or `bluetoothctl` for device scanning, but Bleak is recommended for better reliability.
-
 **For systemd service**: If running as a systemd service, you'll need to either:
-- Install Bleak system-wide (Option 2), or
+- Install meshcore system-wide (Option 2), or
 - Modify the service file to activate the virtual environment before running
 
 ### Test Installation
@@ -266,64 +193,79 @@ python3 database.py
 python3 -c "import genetics; import database; import mesh_interface; import game_engine; import main; print('All imports successful')"
 ```
 
-## Step 5: Configure MeshCore CLI
+## Step 4: Configure USB Serial Access
 
-### Verify Heltec V3 Connection
+### Add User to dialout Group
+
+To access USB serial ports, you need to add your user to the `dialout` group:
 
 ```bash
-# Scan for BLE MeshCore devices
-meshcli -l
+# Add your user to the dialout group
+sudo usermod -a -G dialout $USER
 
-# This will list available BLE devices with their addresses and names
-# Example output:
-# C2:2B:A1:D5:3E:B6  MeshCore-Device-Name
+# Log out and log back in for changes to take effect
+# Or use: newgrp dialout (for current session only)
 
-# Test connection to a specific BLE device
-# Replace C2:2B:A1:D5:3E:B6 with your device's BLE address
-meshcli -a C2:2B:A1:D5:3E:B6 infos
-
-# Get version info
-meshcli -a C2:2B:A1:D5:3E:B6 -v
+# Verify you're in the dialout group
+groups
+# Should show 'dialout' in the list
 ```
 
-**Note**: The `-a` flag specifies the BLE address. MeshAgotchi will handle device selection and connection automatically on first run.
+### Verify Serial Port Detection
 
-## Step 6: Run MeshAgotchi
+```bash
+# Check if USB serial devices are detected
+ls -l /dev/ttyUSB*
+
+# Or check for USB CDC devices
+ls -l /dev/ttyACM*
+
+# If your Heltec V3 radio is connected, you should see a device like:
+# /dev/ttyUSB0 or /dev/ttyACM0
+
+# Check recent USB device connections
+dmesg | tail
+# Should show USB device connection messages
+```
+
+**Note**: MeshAgotchi will automatically detect and connect to USB serial devices on first run.
+
+## Step 5: Run MeshAgotchi
 
 ### Manual Start (Testing)
 
 ```bash
 cd ~/Meshagotchi
 
-# Run MeshAgotchi (will prompt for BLE device selection on first run)
+# If using virtual environment, activate it first
+source venv/bin/activate
+
+# Run MeshAgotchi (will auto-detect USB serial port on first run)
 python3 main.py
 ```
 
 **First Run**: On first run, MeshAgotchi will:
-1. Scan for available BLE MeshCore devices
-2. Display a numbered list for you to select your device
-3. Prompt for the BLE pairing code
-4. Connect and store the device info for future use
+1. Check for a previously connected serial port in the database
+2. If not found, automatically scan for USB serial devices (ttyUSB0, ttyUSB1, etc.)
+3. If multiple devices are found, display a numbered list for you to select
+4. If only one device is found, it will be auto-selected
+5. Connect to the selected serial port and store it for future use
 
-**Subsequent Runs**: Will automatically connect to the stored BLE device.
+**Subsequent Runs**: Will automatically connect to the stored serial port.
 
 You should see:
 ```
 Initializing MeshAgotchi...
-Scanning for BLE devices...
-Available BLE devices:
-  1 - MeshCore-Device-Name (C2:2B:A1:D5:3E:B6)
-
-Select device number (or 'q' to quit): 1
-
-Selected device: MeshCore-Device-Name (C2:2B:A1:D5:3E:B6)
-Enter BLE pairing code (or press Enter if not required): 123456
-Successfully connected to BLE device: MeshCore-Device-Name (C2:2B:A1:D5:3E:B6)
+Scanning for serial devices...
+Auto-selected serial port: /dev/ttyUSB0
+Connecting to serial port: /dev/ttyUSB0...
+Successfully connected to serial port: /dev/ttyUSB0
 Database initialized.
 MeshHandler initialized.
 GameEngine initialized.
+Radio initialization complete
 MeshAgotchi daemon ready!
-Listening for messages via MeshCore CLI...
+Listening for messages via MeshCore...
 Press Ctrl+C to stop.
 ```
 
@@ -333,7 +275,7 @@ From another device with MeshCore Mobile App:
 - Send `/help` to the Raspberry Pi's Node ID
 - You should receive a response with available commands
 
-## Step 7: Set Up as System Service (Optional but Recommended)
+## Step 6: Set Up as System Service (Optional but Recommended)
 
 To run MeshAgotchi automatically on boot:
 
@@ -420,7 +362,7 @@ sudo systemctl restart meshagotchi.service
 sudo systemctl disable meshagotchi.service
 ```
 
-## Step 8: Verify Installation
+## Step 7: Verify Installation
 
 ### Check Database
 
@@ -448,44 +390,53 @@ sudo journalctl -u meshagotchi.service -f
 
 ## Troubleshooting
 
-### MeshCore CLI Not Found
+### Permission Denied Accessing Serial Port
 
 ```bash
-# Check if meshcli is in PATH
-which meshcli
+# Check if you're in the dialout group
+groups
 
-# If not found, check installation
-cd ~/meshcore-cli
-source venv/bin/activate
-which meshcli
+# If dialout is not listed, add yourself:
+sudo usermod -a -G dialout $USER
 
-# If found in venv but not in PATH, create symlink:
-mkdir -p ~/.local/bin
-ln -s ~/meshcore-cli/venv/bin/meshcli ~/.local/bin/meshcli
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+# Log out and log back in, or use:
+newgrp dialout
+
+# Verify serial port permissions
+ls -l /dev/ttyUSB0
+# Should show read/write permissions for dialout group
 ```
 
-### BLE Connection Issues
+### Serial Port Not Found
 
 ```bash
-# Check Bluetooth is enabled
-bluetoothctl show
+# Check if USB serial devices are detected
+ls -l /dev/ttyUSB* /dev/ttyACM*
 
-# Scan for devices manually
-meshcli -l
+# If no devices found:
+# 1. Ensure Heltec V3 radio is powered on and connected via USB
+# 2. Try unplugging and reconnecting the USB cable
+# 3. Check USB connection: dmesg | tail
+# 4. Try a different USB port or cable
 
-# If device not found:
-# 1. Ensure MeshCore radio is powered on
-# 2. Check radio is in pairing/discoverable mode
-# 3. Verify radio is in range
+# Check if device is detected by system
+dmesg | grep -i usb
+# Should show USB device connection messages
+```
 
-# If connection fails:
-# 1. Verify pairing code is correct
-# 2. Check device is not connected to another system
-# 3. Try removing and re-pairing:
-bluetoothctl remove <BLE_ADDRESS>
-# Then reconnect via MeshAgotchi
+### Connection Issues
+
+```bash
+# Check if another program is using the serial port
+lsof /dev/ttyUSB0
+
+# If another process is using it, stop that process first
+
+# Verify the port exists and is accessible
+ls -l /dev/ttyUSB0
+
+# Test serial port access
+sudo chmod 666 /dev/ttyUSB0  # Temporary fix, but proper solution is dialout group
 ```
 
 ### Database Errors
@@ -513,27 +464,33 @@ sudo cat /etc/systemd/system/meshagotchi.service
 
 ### Messages Not Received
 
-1. Verify MeshCore CLI is working:
+1. Verify serial port connection:
    ```bash
-   meshcli receive
-   # or
-   meshcli listen
+   # Check if port is accessible
+   ls -l /dev/ttyUSB0
+   
+   # Check if MeshAgotchi is running
+   ps aux | grep main.py
    ```
 
-2. Check BLE connection:
+2. Check MeshAgotchi logs:
    ```bash
-   # Verify device is connected
-   bluetoothctl devices
+   # If running as service
+   sudo journalctl -u meshagotchi.service -f
    
-   # Test connection manually
-   meshcli -a <BLE_ADDRESS> infos
+   # If running manually, check terminal output
    ```
 
 3. Verify Node IDs match between devices
 
+4. Check radio configuration:
+   - Ensure radio is on USA/Canada preset (910.525 MHz)
+   - Verify both nodes are on the same frequency/preset
+
 ## Additional Resources
 
-- **MeshCore CLI Documentation**: https://github.com/meshcore-dev/meshcore-cli
+- **meshcore Python Package**: https://pypi.org/project/meshcore/
+- **MeshCore Documentation**: https://github.com/meshcore-dev/MeshCore
 - **Raspberry Pi Documentation**: https://www.raspberrypi.com/documentation/
 - **MeshAgotchi Repository**: https://github.com/datton/Meshagotchi
 
@@ -542,9 +499,10 @@ sudo cat /etc/systemd/system/meshagotchi.service
 After completing these steps, you should have:
 - ✅ Raspberry Pi OS (64-bit) installed and updated
 - ✅ Python 3.10+ installed
-- ✅ MeshCore CLI installed and configured
+- ✅ meshcore Python package installed
+- ✅ User added to dialout group for serial port access
 - ✅ MeshAgotchi cloned and ready
-- ✅ Heltec V3 LoRa radio connected via BLE
+- ✅ Heltec V3 LoRa radio connected via USB Serial
 - ✅ MeshAgotchi running (manually or as service)
 - ✅ Game responding to commands via LoRa mesh
 
