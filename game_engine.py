@@ -428,7 +428,7 @@ class GameEngine:
     
     def _split_ollama_response(self, response: str, max_chars: int = 150) -> List[str]:
         """
-        Split Ollama response into messages with "message from olama X/Y" formatting.
+        Split Ollama response into messages with "AI: X/Y" formatting.
         Each message (including prefix and counter) will be max_chars long.
         
         Args:
@@ -436,10 +436,10 @@ class GameEngine:
             max_chars: Maximum characters per message (default: 150)
         
         Returns:
-            List of messages formatted as "message from olama <content> (X/Y)"
+            List of messages formatted as "AI: <content> (X/Y)"
         """
-        # Calculate prefix length: "message from olama " = 20 chars
-        prefix = "message from olama "
+        # Calculate prefix length: "AI: " = 4 chars
+        prefix = "AI: "
         prefix_len = len(prefix)
         
         # Calculate max counter length (worst case like " (99/99)" = 7 chars)
