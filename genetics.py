@@ -53,25 +53,21 @@ def get_seed_rng(seed: str) -> random.Random:
 
 
 # Safe monospaced characters for mobile app compatibility
-# These characters render with consistent width in most mobile fonts
+# ONLY use these basic symbols - they are guaranteed monospaced in all fonts
+# NO LETTERS OR NUMBERS - they can vary in width in mobile apps
 SAFE_CHARS = {
-    # Always monospaced
     '|', '-', '_', '=', '#', '@', '*', '.', ':', '/', '\\',
-    '[', ']', '(', ')', '{', '}',
-    # Usually monospaced (use carefully)
-    'O', 'o', 'X', 'x', 'H', 'I', 'N', 'M', 'W',
-    # Numbers (usually monospaced)
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+    '[', ']', '(', ')', '{', '}'
 }
 
-# Character mapping for problematic characters to safe alternatives
-# Maps variable-width characters to safe monospaced alternatives
+# Character mapping for ALL other characters to safe monospaced alternatives
+# Maps everything to basic symbols that are guaranteed monospaced
 CHAR_MAP = {
-    # Special symbols that are often variable-width
+    # Special symbols
     '&': '#',  # ampersand -> hash
     '%': '@',  # percent -> at
     '$': '*',  # dollar -> asterisk
-    '?': 'O',  # question -> O
+    '?': '*',  # question -> asterisk
     '!': '|',  # exclamation -> pipe
     '~': '-',  # tilde -> dash
     '^': '*',  # caret -> asterisk
@@ -80,11 +76,20 @@ CHAR_MAP = {
     '>': '\\', # greater than -> backslash
     "'": '|',  # single quote -> pipe
     '"': '|',  # double quote -> pipe
-    # Lowercase letters (often variable-width) -> safe uppercase or symbols
-    'w': 'W', 'm': 'M', 'i': 'I', 'l': 'I', 't': 'T', 'f': 'F',
-    'r': 'R', 'u': 'U', 'v': 'V', 'n': 'N', 'h': 'H', 'a': 'A',
-    'b': 'B', 'c': 'C', 'd': 'D', 'e': 'E', 'g': 'G', 'j': 'J',
-    'k': 'K', 'p': 'P', 'q': 'Q', 's': 'S', 'y': 'Y', 'z': 'Z',
+    # ALL letters (both upper and lowercase) -> symbols
+    # Uppercase letters
+    'A': '#', 'B': '#', 'C': '(', 'D': '[', 'E': '=', 'F': '|', 'G': 'O',
+    'H': '#', 'I': '|', 'J': '|', 'K': '/', 'L': '|', 'M': '#', 'N': '/',
+    'O': '*', 'P': '#', 'Q': '*', 'R': '#', 'S': '*', 'T': '|', 'U': '(',
+    'V': '/', 'W': '#', 'X': '*', 'Y': '/', 'Z': '=',
+    # Lowercase letters
+    'a': '#', 'b': '#', 'c': '(', 'd': '[', 'e': '=', 'f': '|', 'g': 'O',
+    'h': '#', 'i': '|', 'j': '|', 'k': '/', 'l': '|', 'm': '#', 'n': '/',
+    'o': '*', 'p': '#', 'q': '*', 'r': '#', 's': '*', 't': '|', 'u': '(',
+    'v': '/', 'w': '#', 'x': '*', 'y': '/', 'z': '=',
+    # Numbers -> symbols
+    '0': '*', '1': '|', '2': '=', '3': '=', '4': '#', '5': '*', 
+    '6': '*', '7': '/', '8': '*', '9': '*'
 }
 
 
