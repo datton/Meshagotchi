@@ -605,6 +605,11 @@ class GameEngine:
             pet.get('name')
         )
         
+        # Output pet to console
+        print(f"\n[Pet from node {node_id}]:")
+        print(ascii_art)
+        print()
+        
         # Art is already limited to 198 chars by genetics.render_pet()
         # Just return it as-is
         return ascii_art
