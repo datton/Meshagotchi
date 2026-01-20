@@ -11,6 +11,7 @@ from typing import Optional, List, Tuple, Dict, Any
 import database
 import genetics
 import requests
+import config
 
 
 class GameEngine:
@@ -391,9 +392,12 @@ class GameEngine:
         Raises:
             Exception: If connection fails or API returns error
         """
-        ollama_url = "http://192.168.1.230:11434/api/chat"
+        cfg = config.get_config()
+        ollama_config = cfg.get_ollama_config()
+        ollama_url = cfg.get_ollama_url()
+        
         payload = {
-            "model": "gemma3:1b",  # Using gemma3:1b model
+            "model": ollama_config['model'],
             "messages": [
                 {"role": "user", "content": user_message}
             ],
@@ -401,7 +405,7 @@ class GameEngine:
         }
         
         try:
-            response = requests.post(ollama_url, json=payload, timeout=30)
+            response = requests.post(ollama_url, json=payload, timeout=ollama_config['timeout'])
             response.raise_for_status()
             
             data = response.json()
@@ -411,12 +415,12 @@ class GameEngine:
                 raise ValueError("Invalid response format from Ollama")
                 
         except requests.exceptions.ConnectionError:
-            raise Exception("Cannot connect to Ollama at 192.168.1.230:11434. Is Ollama running and accessible?")
+            raise Exception(f"Cannot connect to Ollama at {ollama_config['host']}:{ollama_config['port']}. Is Ollama running and accessible?")
         except requests.exceptions.Timeout:
             raise Exception("Ollama request timed out. The model may be taking too long to respond.")
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
-                raise Exception(f"Ollama endpoint not found (404). Check: 1) Ollama is running on 192.168.1.230:11434, 2) Model 'minimax-m2' exists (try 'ollama list'), 3) Ollama is bound to 0.0.0.0 not just localhost")
+                raise Exception(f"Ollama endpoint not found (404). Check: 1) Ollama is running on {ollama_config['host']}:{ollama_config['port']}, 2) Model '{ollama_config['model']}' exists (try 'ollama list'), 3) Ollama is bound to 0.0.0.0 not just localhost")
             else:
                 raise Exception(f"Ollama API error ({e.response.status_code}): {e}")
         except Exception as e:
@@ -673,12 +677,22 @@ class GameEngine:
             "/pet - Show ASCII art\n"
             "/status - Full stats & info\n"
             "/name <name> - Name pet (max 20 chars)\n"
+            "/ai <message> - Ask Ollama AI\n"
             "/help - List all commands"
         )
         parts.append(part7)
         
-        # Part 8: Tips
+        # Part 8: AI Command
         part8 = (
+            "AI COMMAND:\n"
+            "/ai <message> - Ask Ollama AI\n"
+            "Responses split into 150-char chunks\n"
+            "Requires Ollama on local network"
+        )
+        parts.append(part8)
+        
+        # Part 9: Tips
+        part9 = (
             "TIPS:\n"
             "- Check /status regularly\n"
             "- Keep hunger<80, hygiene>20\n"
@@ -686,7 +700,7 @@ class GameEngine:
             "- Each generation is unique\n"
             "- Pets age even when offline"
         )
-        parts.append(part8)
+        parts.append(part9)
         
         # Split into messages with proper page numbering (150 chars max including counter)
         return self._split_into_messages(parts, max_chars=150)

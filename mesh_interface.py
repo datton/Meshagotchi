@@ -25,6 +25,8 @@ except ImportError:
         "  pipx install meshcore-cli"
     )
 
+import config
+
 
 def _normalize_text(value: str) -> str:
     """
@@ -136,15 +138,6 @@ class MeshHandler:
     Hardware: Heltec V3 LoRa radio running latest MeshCore firmware,
     connected to Raspberry Pi via USB serial (ttyUSB).
     """
-    
-    # USA/Canada (Recommended) preset parameters
-    USA_CANADA_PRESET = {
-        'frequency': 910525000,  # 910.525 MHz in Hz
-        'bandwidth': 62500,      # 62.5 kHz in Hz
-        'spreading_factor': 7,   # SF7
-        'coding_rate': 5,        # CR 5
-        'power': 22              # 22 dBm
-    }
     
     def __init__(self, min_send_interval: float = 2.0, max_message_length: int = 200):
         """
@@ -592,8 +585,8 @@ class MeshHandler:
         Initialize and configure radio at startup.
         
         Ensures:
-        1. Radio is configured to USA recommended preset
-        2. Radio name is set to "Meshagotchi"
+        1. Radio is configured using settings from config.ini
+        2. Radio name is set from config.ini
         3. Radio performs flood and zero-hop advert
         
         Returns:
@@ -613,13 +606,15 @@ class MeshHandler:
             if link_info:
                 self.radio_info = link_info
             
-            # Step 1: Configure radio to USA/Canada preset
-            print("\n[1/3] Configuring radio to USA recommended preset...")
-            preset_success = await self.configure_usa_canada_preset()
+            # Step 1: Configure radio from config.ini
+            print("\n[1/3] Configuring radio from config.ini...")
+            preset_success = await self.configure_radio_preset()
             
-            # Step 2: Set radio name to "Meshagotchi"
+            # Step 2: Set radio name from config.ini
+            cfg = config.get_config()
+            radio_name = cfg.get_radio_name()
             print("\n[2/3] Setting radio name...")
-            name_success = await self.set_radio_name("Meshagotchi")
+            name_success = await self.set_radio_name(radio_name)
             
             # Step 3: Perform flood and zero-hop advert
             print("\n[3/3] Sending flood and zero-hop adverts...")
@@ -671,19 +666,21 @@ class MeshHandler:
         except Exception:
             return None
     
-    async def configure_usa_canada_preset(self) -> bool:
-        """Configure radio to USA/Canada preset using meshcore_py."""
+    async def configure_radio_preset(self) -> bool:
+        """Configure radio using settings from config.ini."""
         if not self.meshcore:
             return False
         
         try:
-            preset = self.USA_CANADA_PRESET
-            freq_mhz = preset['frequency'] / 1000000  # 910.525 MHz
-            bw_khz = preset['bandwidth'] / 1000        # 62.5 kHz
-            sf = preset['spreading_factor']             # 7
-            cr = preset['coding_rate']                  # 5
+            cfg = config.get_config()
+            radio_config = cfg.get_radio_config()
             
-            print("Configuring radio to USA/Canada preset...")
+            freq_mhz = radio_config['frequency'] / 1000000  # Convert Hz to MHz
+            bw_khz = radio_config['bandwidth'] / 1000        # Convert Hz to kHz
+            sf = radio_config['spreading_factor']
+            cr = radio_config['coding_rate']
+            
+            print("Configuring radio from config.ini...")
             print(f"  Frequency: {freq_mhz} MHz")
             print(f"  Bandwidth: {bw_khz} kHz")
             print(f"  Spreading Factor: {sf}")

@@ -102,7 +102,9 @@ python3 --version
 
 ### Install Dependencies
 
-MeshAgotchi requires the `meshcore` Python package for MeshCore communication.
+MeshAgotchi requires:
+- `meshcore` Python package for MeshCore communication
+- `requests` Python package for Ollama AI integration (optional, for `/ai` command)
 
 #### Option 1: Install with Virtual Environment (Recommended)
 
@@ -377,7 +379,8 @@ ls -lh meshogotchi.db
 Using MeshCore Mobile App, send commands to your Pi's Node ID:
 - `/help` - Should return command list
 - `/hatch` - Should create a new pet
-- `/stats` - Should show pet status and ASCII art
+- `/status` - Should show pet status and ASCII art
+- `/ai <message>` - Ask Ollama AI a question (requires Ollama running on local network)
 
 ### Monitor Logs
 

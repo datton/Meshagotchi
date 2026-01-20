@@ -31,6 +31,7 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
   - `/name <name>` - Name your pet (max 20 chars)
   - `/quiet` - Enable quiet mode (pet only messages when in trouble)
   - `/talk` - Disable quiet mode (pet messages regularly)
+  - `/ai <message>` - Ask Ollama AI a question (requires Ollama running on local network)
   - `/help` - List all commands
   - `/howto` - Detailed game guide
 
@@ -43,6 +44,7 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 - **Persistent Storage**: SQLite database for pet data persistence
 - **Systemd Service**: Can run as a background daemon
 - **Rate Limiting**: Built-in message rate limiting to prevent network flooding
+- **Ollama AI Integration**: Connect to local Ollama instance for AI-powered responses
 
 ## Hardware Requirements
 
@@ -57,7 +59,9 @@ MeshAgotchi is a Tamagotchi-inspired virtual pet game designed for decentralized
 - Raspberry Pi OS (64-bit) - Bookworm or newer
 - Python 3.10 or higher
 - meshcore Python package - `pip install meshcore`
+- requests Python package - `pip install requests` (for Ollama AI integration)
 - MeshCore-compatible firmware on Heltec V3 radio
+- Ollama (optional, for `/ai` command) - Running on local network at `192.168.1.230:11434`
 
 ## Quick Start
 
@@ -111,6 +115,7 @@ Send commands to your MeshAgotchi node from another MeshCore-compatible device (
 /name Fluffy     # Name your pet
 /quiet           # Enable quiet mode
 /talk            # Disable quiet mode
+/ai Hello        # Ask Ollama AI a question
 /help            # List all commands
 /howto           # Detailed game guide
 ```
