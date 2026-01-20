@@ -589,30 +589,36 @@ class GameEngine:
             "Use /pet or /status to see your new pet."
         )
     
-    def _handle_pet(self, node_id: str, pet: Optional[Dict]) -> str:
-        """Handle /pet command - show ASCII art only (up to 198 chars)."""
+    def _handle_pet(self, node_id: str, pet: Optional[Dict]) -> List[str]:
+        """Handle /pet command - returns 2 messages: stats first, then ASCII art only."""
         if not pet:
-            return "No active pet. Use /hatch to create one."
+            return ["No active pet. Use /hatch to create one."]
         
         if not pet.get('is_alive'):
-            return "Your pet has died. Use /hatch to start a new generation."
+            return ["Your pet has died. Use /hatch to start a new generation."]
         
-        # Generate ASCII art
+        # Message 1: Pet stats
+        pet_name = pet.get('name') or "Unnamed"
+        age_stage = pet['age_stage'].capitalize()
+        health = pet.get('health', 100)
+        stats_message = f"Pet: {pet_name}, Age: {age_stage}, Health: {health}/100"
+        
+        # Message 2: ASCII art only (12x12 grid, NO SPACES, ~150 chars)
         ascii_art = genetics.render_pet(
             node_id,
             pet['dna_seed'],
             pet['age_stage'],
-            pet.get('name')
+            None  # Name not included in art - sent in first message
         )
         
         # Output pet to console
         print(f"\n[Pet from node {node_id}]:")
+        print(stats_message)
         print(ascii_art)
         print()
         
-        # Art is already limited to 198 chars by genetics.render_pet()
-        # Just return it as-is
-        return ascii_art
+        # Return 2 messages: stats first, then art
+        return [stats_message, ascii_art]
     
     def _handle_feed(self, node_id: str, pet: Optional[Dict]) -> List[str]:
         """Handle /feed command - increase hunger."""
