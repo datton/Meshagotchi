@@ -10,6 +10,7 @@ import random
 from typing import Optional, List, Tuple, Dict, Any
 import database
 import genetics
+import requests
 
 
 class GameEngine:
@@ -377,6 +378,116 @@ class GameEngine:
         
         return result
     
+    def _call_ollama(self, user_message: str) -> str:
+        """
+        Call Ollama API to get AI response.
+        
+        Args:
+            user_message: The user's message to send to Ollama
+            
+        Returns:
+            The assistant's response text from Ollama
+            
+        Raises:
+            Exception: If connection fails or API returns error
+        """
+        ollama_url = "http://192.168.1.230:11434/api/chat"
+        payload = {
+            "model": "minimax-m2",  # Using minimax-m2 model
+            "messages": [
+                {"role": "user", "content": user_message}
+            ],
+            "stream": False
+        }
+        
+        try:
+            response = requests.post(ollama_url, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            if "message" in data and "content" in data["message"]:
+                return data["message"]["content"]
+            else:
+                raise ValueError("Invalid response format from Ollama")
+                
+        except requests.exceptions.ConnectionError:
+            raise Exception("Cannot connect to Ollama at 192.168.1.230:11434. Is Ollama running?")
+        except requests.exceptions.Timeout:
+            raise Exception("Ollama request timed out. The model may be taking too long to respond.")
+        except requests.exceptions.HTTPError as e:
+            raise Exception(f"Ollama API error: {e}")
+        except Exception as e:
+            raise Exception(f"Error calling Ollama: {e}")
+    
+    def _split_ollama_response(self, response: str, max_chars: int = 150) -> List[str]:
+        """
+        Split Ollama response into messages with "message from olama X/Y" formatting.
+        Each message (including prefix and counter) will be max_chars long.
+        
+        Args:
+            response: The full response text from Ollama
+            max_chars: Maximum characters per message (default: 150)
+        
+        Returns:
+            List of messages formatted as "message from olama <content> (X/Y)"
+        """
+        # Calculate prefix length: "message from olama " = 20 chars
+        prefix = "message from olama "
+        prefix_len = len(prefix)
+        
+        # Calculate max counter length (worst case like " (99/99)" = 7 chars)
+        max_counter_len = len(f" ({99}/{99})")
+        
+        # Available space for content = max_chars - prefix_len - max_counter_len
+        max_content_len = max_chars - prefix_len - max_counter_len
+        
+        # Split response into chunks that fit in max_content_len
+        chunks = []
+        current_chunk = ""
+        
+        # Split by words to avoid breaking words
+        words = response.split()
+        
+        for word in words:
+            # Check if adding this word would exceed the limit
+            test_chunk = current_chunk + (" " if current_chunk else "") + word
+            if len(test_chunk) <= max_content_len:
+                current_chunk = test_chunk
+            else:
+                # Save current chunk and start new one
+                if current_chunk:
+                    chunks.append(current_chunk)
+                current_chunk = word
+                
+                # Safety: if a single word is too long, truncate it
+                if len(current_chunk) > max_content_len:
+                    current_chunk = current_chunk[:max_content_len - 3] + "..."
+        
+        # Add the last chunk if it exists
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        # If no chunks were created (empty response), create one
+        if not chunks:
+            chunks.append("(no response)")
+        
+        # Add prefix and counter to each chunk
+        total_chunks = len(chunks)
+        result = []
+        for i, chunk in enumerate(chunks, 1):
+            counter = f" ({i}/{total_chunks})"
+            # Final safety check - ensure total length doesn't exceed max_chars
+            full_message = prefix + chunk + counter
+            if len(full_message) > max_chars:
+                # Truncate chunk if needed
+                available = max_chars - prefix_len - len(counter)
+                chunk = chunk[:available - 3] + "..."
+                full_message = prefix + chunk + counter
+            
+            result.append(full_message)
+        
+        return result
+    
     def process_command(self, node_id: str, command_text: str):
         """
         Main entry point for processing commands.
@@ -440,6 +551,8 @@ class GameEngine:
             return self._handle_quiet(node_id, pet)
         elif command == '/talk':
             return self._handle_talk(node_id, pet)
+        elif command == '/ai':
+            return self._handle_ai(node_id, args)
         else:
             return self._handle_unknown_command()
     
@@ -472,7 +585,8 @@ class GameEngine:
             "Customization:\n"
             "/name <name> - Set your pet's name (max 20 chars)\n"
             "/quiet - Enable quiet mode (pet only messages when in trouble)\n"
-            "/talk - Disable quiet mode (pet messages regularly)"
+            "/talk - Disable quiet mode (pet messages regularly)\n"
+            "/ai <message> - Ask Ollama AI a question"
         )
         parts.append(part3)
         
@@ -821,6 +935,28 @@ class GameEngine:
         database.update_pet_stats(pet['id'], {'quiet_mode': 0})
         
         return "Talk mode enabled. Pet will message regularly."
+    
+    def _handle_ai(self, node_id: str, args: str) -> List[str]:
+        """Handle /ai command - send message to Ollama and return response."""
+        if not args or not args.strip():
+            return ["Usage: /ai <message> - Ask Ollama AI a question"]
+        
+        user_message = args.strip()
+        
+        try:
+            # Call Ollama API
+            response = self._call_ollama(user_message)
+            
+            # Split response into 150-char chunks with "message from olama X/Y" format
+            return self._split_ollama_response(response)
+            
+        except Exception as e:
+            # Return error message as a single message
+            error_msg = f"Error: {str(e)}"
+            # Ensure error message fits in one message
+            if len(error_msg) > 150:
+                error_msg = error_msg[:147] + "..."
+            return [error_msg]
     
     def _handle_unknown_command(self) -> str:
         """Handle unknown commands."""

@@ -1,2 +1,5 @@
 # Primary dependency for MeshCore communication
 meshcore>=0.1.0
+
+# HTTP requests for Ollama API integration
+requests>=2.31.0
