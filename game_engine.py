@@ -393,7 +393,7 @@ class GameEngine:
         """
         ollama_url = "http://192.168.1.230:11434/api/chat"
         payload = {
-            "model": "deepseek-r1:8b",  # Using deepseek-r1:8b model
+            "model": "gemma3:1b",  # Using gemma3:1b model
             "messages": [
                 {"role": "user", "content": user_message}
             ],
