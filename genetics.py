@@ -52,17 +52,81 @@ def get_seed_rng(seed: str) -> random.Random:
     return random.Random(seed_int)
 
 
+# Safe monospaced characters for mobile app compatibility
+# These characters render with consistent width in most mobile fonts
+SAFE_CHARS = {
+    # Always monospaced
+    '|', '-', '_', '=', '#', '@', '*', '.', ':', '/', '\\',
+    '[', ']', '(', ')', '{', '}',
+    # Usually monospaced (use carefully)
+    'O', 'o', 'X', 'x', 'H', 'I', 'N', 'M', 'W',
+    # Numbers (usually monospaced)
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'
+}
+
+# Character mapping for problematic characters to safe alternatives
+# Maps variable-width characters to safe monospaced alternatives
+CHAR_MAP = {
+    # Special symbols that are often variable-width
+    '&': '#',  # ampersand -> hash
+    '%': '@',  # percent -> at
+    '$': '*',  # dollar -> asterisk
+    '?': 'O',  # question -> O
+    '!': '|',  # exclamation -> pipe
+    '~': '-',  # tilde -> dash
+    '^': '*',  # caret -> asterisk
+    '+': '#',  # plus -> hash
+    '<': '/',  # less than -> slash
+    '>': '\\', # greater than -> backslash
+    "'": '|',  # single quote -> pipe
+    '"': '|',  # double quote -> pipe
+    # Lowercase letters (often variable-width) -> safe uppercase or symbols
+    'w': 'W', 'm': 'M', 'i': 'I', 'l': 'I', 't': 'T', 'f': 'F',
+    'r': 'R', 'u': 'U', 'v': 'V', 'n': 'N', 'h': 'H', 'a': 'A',
+    'b': 'B', 'c': 'C', 'd': 'D', 'e': 'E', 'g': 'G', 'j': 'J',
+    'k': 'K', 'p': 'P', 'q': 'Q', 's': 'S', 'y': 'Y', 'z': 'Z',
+}
+
+
+def normalize_to_safe_chars(art: str) -> str:
+    """
+    Convert all characters in ASCII art to safe monospaced characters.
+    This ensures consistent rendering in mobile apps with variable-width fonts.
+    
+    Args:
+        art: ASCII art string with potentially variable-width characters
+    
+    Returns:
+        ASCII art with only safe monospaced characters
+    """
+    result = []
+    for char in art:
+        if char in SAFE_CHARS:
+            result.append(char)
+        elif char in CHAR_MAP:
+            result.append(CHAR_MAP[char])
+        elif char == '\n':
+            result.append('\n')
+        else:
+            # Unknown character - replace with safe default
+            result.append('.')
+    return ''.join(result)
+
+
 def create_12x12_grid(lines: List[str]) -> str:
     """
     Create a 12x12 character grid (144 chars + 11 newlines = 155 total).
     Pads or truncates lines to exactly 12 characters, ensures exactly 12 lines.
-    NO SPACES - automatically removes all spaces and uses characters creatively for padding.
+    NO SPACES - automatically removes all spaces and uses safe monospaced characters for padding.
+    All characters are normalized to safe monospaced set for mobile app compatibility.
     """
     # Remove empty lines and process
     processed_lines = []
     for line in lines:
         # Remove ALL spaces
         line = line.replace(' ', '')
+        # Normalize to safe characters
+        line = normalize_to_safe_chars(line)
         if line:  # Only add non-empty lines
             processed_lines.append(line)
     
@@ -71,18 +135,20 @@ def create_12x12_grid(lines: List[str]) -> str:
         processed_lines.append('')
     processed_lines = processed_lines[:12]
     
-    # Process each line to exactly 12 characters (no spaces)
+    # Process each line to exactly 12 characters (no spaces, safe chars only)
     grid_lines = []
+    # Safe padding characters (guaranteed monospaced)
+    padding_chars = ['=', '-', '.', '*', '#', '@', '_', '|']
     for i, line in enumerate(processed_lines):
         # Remove any remaining spaces (safety check)
         line = line.replace(' ', '')
+        # Normalize to safe characters
+        line = normalize_to_safe_chars(line)
         
         if len(line) == 12:
             grid_lines.append(line)
         elif len(line) < 12:
-            # Pad with decorative characters (no spaces)
-            # Use different padding chars based on position for variety
-            padding_chars = ['=', '-', '|', '.', '~', '*', '#', '@', '+', '_']
+            # Pad with safe monospaced characters
             pad_char = padding_chars[(i + len(line)) % len(padding_chars)]
             grid_lines.append(line + pad_char * (12 - len(line)))
         else:
@@ -804,10 +870,10 @@ def render_teen(pet_type: str, seed: str) -> str:
 # ============================================================================
 
 def render_adult_robot(seed: str) -> str:
-    """Render robot adult - 12x12 grid, NO SPACES."""
+    """Render robot adult - 12x12 grid, NO SPACES, safe monospaced chars only."""
     rng = get_seed_rng(seed)
-    eye_left = rng.choice(['o', '+', '=', '.', 'X', 'O'])
-    eye_right = rng.choice(['o', '+', '=', '.', 'X', 'O'])
+    eye_left = rng.choice(['O', 'X', 'o', 'x', '*', '#'])
+    eye_right = rng.choice(['O', 'X', 'o', 'x', '*', '#'])
     has_antenna = rng.random() > 0.5
     body_variant = rng.randint(0, 2)
     
@@ -821,7 +887,7 @@ def render_adult_robot(seed: str) -> str:
     lines.append(f"==[{eye_left}{eye_right}]====")
     lines.append("==[====]====")
     
-    # Body variants
+    # Body variants (using safe chars: =, |, -, #, @)
     if body_variant == 0:
         lines.append("=[========]=")
         lines.append("=|||========")
@@ -829,11 +895,11 @@ def render_adult_robot(seed: str) -> str:
         lines.append("=|||========")
         lines.append("=[========]=")
     elif body_variant == 1:
-        lines.append("=+--------+=")
+        lines.append("=#--------#=")
         lines.append("=|||========")
         lines.append("=|======|==")
         lines.append("=|||========")
-        lines.append("=+--------+=")
+        lines.append("=#--------#=")
     else:
         lines.append("============")
         lines.append("=|||========")
@@ -849,42 +915,42 @@ def render_adult_robot(seed: str) -> str:
 
 
 def render_adult_alien(seed: str) -> str:
-    """Render alien adult - 12x12 grid, NO SPACES."""
+    """Render alien adult - 12x12 grid, NO SPACES, safe monospaced chars only."""
     rng = get_seed_rng(seed)
-    eye_left = rng.choice(['o', '*', 'O', '0', '^', '~'])
-    eye_right = rng.choice(['o', '*', 'O', '0', '^', '~'])
+    eye_left = rng.choice(['O', 'o', '*', 'X', 'x', '#'])
+    eye_right = rng.choice(['O', 'o', '*', 'X', 'x', '#'])
     has_antenna = rng.random() > 0.5
     body_variant = rng.randint(0, 2)
     
     lines = []
     if has_antenna:
-        lines.append("~~~**~~~~~~")
+        lines.append("***##******")
     else:
-        lines.append("~~~~~~~~~~~")
+        lines.append("************")
     
     # Head
-    lines.append(f"~~({eye_left}{eye_right})~~~~")
-    lines.append("~~(~~~~)~~~~")
+    lines.append(f"**({eye_left}{eye_right})****")
+    lines.append("**(****)****")
     
-    # Body
+    # Body (using safe chars: *, -, |, _, /, \, {, })
     if body_variant == 0:
-        lines.append("~(~~~~~~~~)~")
-        lines.append("|~~||~~~~~~|")
-        lines.append("|~~^^~~~~~~|")
-        lines.append("|~~||~~~~~~|")
-        lines.append("~(________)~")
+        lines.append("*(********)*")
+        lines.append("|**||******|")
+        lines.append("|**##******|")
+        lines.append("|**||******|")
+        lines.append("*(________)*")
     elif body_variant == 1:
-        lines.append("~/~~~~~~~~\\~")
-        lines.append("|~~||~~~~~~|")
-        lines.append("|~~^^~~~~~~|")
-        lines.append("|~~||~~~~~~|")
-        lines.append("~\\________/~")
+        lines.append("*/********\\*")
+        lines.append("|**||******|")
+        lines.append("|**##******|")
+        lines.append("|**||******|")
+        lines.append("*\\________/*")
     else:
-        lines.append("~{~~~~~~~~}~")
-        lines.append("|~~||~~~~~~|")
-        lines.append("|~~^^~~~~~~|")
-        lines.append("|~~||~~~~~~|")
-        lines.append("~{________}~")
+        lines.append("*{********}*")
+        lines.append("|**||******|")
+        lines.append("|**##******|")
+        lines.append("|**||******|")
+        lines.append("*{________}*")
     
     # Legs
     lines.append("==||====||==")
@@ -893,10 +959,10 @@ def render_adult_alien(seed: str) -> str:
 
 
 def render_adult_monster(seed: str) -> str:
-    """Render monster adult - 12x12 grid, NO SPACES."""
+    """Render monster adult - 12x12 grid, NO SPACES, safe monospaced chars only."""
     rng = get_seed_rng(seed)
-    eye_left = rng.choice(['>', 'V', '^', 'X', '<'])
-    eye_right = rng.choice(['<', 'V', '^', 'X', '>'])
+    eye_left = rng.choice(['X', 'x', '*', '#', '/', '\\'])
+    eye_right = rng.choice(['X', 'x', '*', '#', '/', '\\'])
     has_horns = rng.random() > 0.5
     body_variant = rng.randint(0, 2)
     
@@ -909,24 +975,25 @@ def render_adult_monster(seed: str) -> str:
     lines.append(f"##{eye_left}{eye_right}########")
     lines.append("##/\\##########")
     
+    # Body (using safe chars: #, /, \, |, -, _, =)
     if body_variant == 0:
-        lines.append("#/~~~~~~~~\\##")
-        lines.append("|~~~||~~~~~~|")
-        lines.append("|~~>>>>~~~~|")
-        lines.append("|~~~||~~~~~~|")
+        lines.append("#/--------\\##")
+        lines.append("|---||------|")
+        lines.append("|--####----|")
+        lines.append("|---||------|")
         lines.append("#\\________/#")
     elif body_variant == 1:
         lines.append("#<========>##")
-        lines.append("|~~~||~~~~~~|")
-        lines.append("|~~>>>>~~~~|")
-        lines.append("|~~~||~~~~~~|")
+        lines.append("|---||------|")
+        lines.append("|--####----|")
+        lines.append("|---||------|")
         lines.append("#<========>##")
     else:
-        lines.append("#~~~~~~~~##")
-        lines.append("|~~~||~~~~~~|")
-        lines.append("|~~>>>>~~~~|")
-        lines.append("|~~~||~~~~~~|")
-        lines.append("#________##")
+        lines.append("#----------##")
+        lines.append("|---||------|")
+        lines.append("|--####----|")
+        lines.append("|---||------|")
+        lines.append("#__________##")
     
     lines.append("##||====||##")
     lines.append("##||====||##")
@@ -2383,9 +2450,15 @@ def render_pet(node_id: str, generation_seed: str, age_stage: str, name: Optiona
     # Ensure no spaces in final art
     art = art.replace(' ', '')
     
+    # Normalize all characters to safe monospaced set for mobile app compatibility
+    art = normalize_to_safe_chars(art)
+    
     # Ensure exactly 12x12 grid
     lines = art.split('\n')
     art = create_12x12_grid(lines)
+    
+    # Final normalization pass to ensure all characters are safe
+    art = normalize_to_safe_chars(art)
     
     return art
 
