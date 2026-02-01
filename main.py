@@ -12,6 +12,14 @@ from datetime import datetime, timedelta
 import database
 import mesh_interface
 import game_engine
+import config
+
+
+# Welcome message sent to public channel on startup and once per day
+WELCOME_MESSAGE = (
+    "Meshagotchi is live and your pet is ready to meet you! "
+    "Message /help to this address to get started"
+)
 
 
 class MeshAgotchiDaemon:
@@ -24,8 +32,12 @@ class MeshAgotchiDaemon:
         self.game_engine = None
         self.last_notification_check = None
         self.notification_interval = 300  # 5 minutes in seconds
-        self.last_advert_flood = None
-        self.advert_flood_interval = 4 * 3600  # 4 hours in seconds (flood adverts 6 times per day)
+        self.last_flood_advert = None
+        self.flood_advert_interval = 20 * 60  # 20 minutes in seconds
+        self.last_zero_hop_advert = None
+        self.zero_hop_advert_interval = 5 * 60  # 5 minutes in seconds
+        self.last_welcome_message = None
+        self.welcome_message_interval = 24 * 3600  # 24 hours in seconds
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -62,8 +74,13 @@ class MeshAgotchiDaemon:
         # Initialize notification check time
         self.last_notification_check = datetime.now()
         
-        # Initialize advert flood time (start immediately)
-        self.last_advert_flood = datetime.now()
+        # Initialize advert timers (next run will be after interval)
+        self.last_flood_advert = datetime.now()
+        self.last_zero_hop_advert = datetime.now()
+        
+        # Send welcome message to public channel on startup
+        await self._send_welcome_message()
+        self.last_welcome_message = datetime.now()
         
         print("MeshAgotchi ready. Listening for messages...")
     
@@ -116,13 +133,23 @@ class MeshAgotchiDaemon:
                     await self.mesh_handler.discover_and_add_nodes()
                     self.last_discovery_check = datetime.now()
                 
-                # Periodically flood zero-hop adverts throughout the day
-                # This keeps the node discoverable to others
+                # Flood adverts every 20 minutes; zero-hop adverts every 5 minutes
                 now = datetime.now()
-                time_since_advert = (now - self.last_advert_flood).total_seconds()
-                if time_since_advert >= self.advert_flood_interval:
-                    await self.mesh_handler.flood_advert(count=5, delay=0.5, zero_hop=True)
-                    self.last_advert_flood = now
+                time_since_flood = (now - self.last_flood_advert).total_seconds()
+                if time_since_flood >= self.flood_advert_interval:
+                    await self.mesh_handler.send_flood_advert(count=5, delay=0.5)
+                    self.last_flood_advert = now
+                time_since_zero_hop = (now - self.last_zero_hop_advert).total_seconds()
+                if time_since_zero_hop >= self.zero_hop_advert_interval:
+                    await self.mesh_handler.send_zero_hop_advert(count=5, delay=0.5)
+                    self.last_zero_hop_advert = now
+                
+                # Welcome message to public channel once per day
+                if self.last_welcome_message is not None:
+                    time_since_welcome = (now - self.last_welcome_message).total_seconds()
+                    if time_since_welcome >= self.welcome_message_interval:
+                        await self._send_welcome_message()
+                        self.last_welcome_message = now
                 
                 # Check for periodic notifications
                 time_since_check = (now - self.last_notification_check).total_seconds()
@@ -144,6 +171,16 @@ class MeshAgotchiDaemon:
         if self.mesh_handler:
             await self.mesh_handler.disconnect()
     
+    async def _send_welcome_message(self):
+        """Send welcome message to public channel (channel 0)."""
+        try:
+            cfg = config.get_config()
+            radio_name = cfg.get_radio_name()
+            message = WELCOME_MESSAGE.replace("Meshagotchi", radio_name, 1)
+            await self.mesh_handler.send_public_message(message, channel=0)
+        except Exception as e:
+            print(f"Error sending welcome message: {e}")
+
     async def _check_notifications(self):
         """Check and send periodic notifications (async)."""
         try:

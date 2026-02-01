@@ -588,6 +588,7 @@ class MeshHandler:
         1. Radio is configured using settings from config.ini
         2. Radio name is set from config.ini
         3. Radio performs flood and zero-hop advert
+        4. Message relay (repeat) is set to on
         
         Returns:
             True if successful, False otherwise
@@ -616,9 +617,14 @@ class MeshHandler:
             print("\n[2/3] Setting radio name...")
             name_success = await self.set_radio_name(radio_name)
             
-            # Step 3: Perform flood and zero-hop advert
+            # Step 3: Send initial flood and zero-hop adverts
             print("\n[3/3] Sending flood and zero-hop adverts...")
-            await self.flood_advert(count=5, delay=0.5, zero_hop=True)
+            await self.send_flood_advert(count=5, delay=0.5)
+            await self.send_zero_hop_advert(count=5, delay=0.5)
+            
+            # Step 4: Set message relay (repeat) to on so node forwards packets
+            print("\n[4/4] Setting message relay to on...")
+            await self.set_message_relay(True)
             
             # Consider initialization successful if at least preset or name worked
             # (Some operations might not be available in all firmware versions)
@@ -636,6 +642,21 @@ class MeshHandler:
             # Don't block startup on radio init errors
             return True
     
+    async def set_message_relay(self, enabled: bool) -> bool:
+        """Set message relay (packet forwarding / repeat) on or off. Uses custom var 'repeat'."""
+        if not self.meshcore:
+            return False
+        try:
+            value = "on" if enabled else "off"
+            result = await self.meshcore.commands.set_custom_var("repeat", value)
+            if result and result.type == EventType.ERROR:
+                print(f"Warning: Could not set message relay: {result.payload}")
+                return False
+            return True
+        except Exception as e:
+            print(f"Warning: set_message_relay failed: {e}")
+            return False
+
     async def get_radio_version(self) -> Optional[str]:
         """Get radio firmware version using meshcore_py."""
         if not self.meshcore:
@@ -741,30 +762,53 @@ class MeshHandler:
             print(f"Error setting radio name: {e}")
             return False
     
-    async def flood_advert(self, count: int = 5, delay: float = 0.5, zero_hop: bool = True):
-        """
-        Flood adverts using meshcore_py.
-        
-        Args:
-            count: Number of adverts to send (default: 5)
-            delay: Delay between adverts in seconds (default: 0.5)
-            zero_hop: If True, send zero-hop adverts (default: True)
-        """
+    async def send_flood_advert(self, count: int = 5, delay: float = 0.5):
+        """Send flood adverts (multi-hop). Use every 20 minutes."""
         if not self.meshcore:
             return
-        
         try:
-            print(f"Sending {count} flood advert(s) (zero-hop: {zero_hop})...")
             for i in range(count):
-                # Use send_advert with flood=True for zero-hop flooding
-                # flood=True typically means zero-hop (local broadcast)
-                result = await self.meshcore.commands.send_advert(flood=True)
-                # Result may be None or an Event - both are acceptable
+                await self.meshcore.commands.send_advert(flood=False)
                 if i < count - 1:
                     await asyncio.sleep(delay)
-            print(f"Flood adverts sent successfully")
         except Exception as e:
-            print(f"Error flooding adverts: {e}")
+            print(f"Error sending flood adverts: {e}")
+
+    async def send_zero_hop_advert(self, count: int = 5, delay: float = 0.5):
+        """Send zero-hop adverts (local broadcast). Use every 5 minutes."""
+        if not self.meshcore:
+            return
+        try:
+            for i in range(count):
+                await self.meshcore.commands.send_advert(flood=True)
+                if i < count - 1:
+                    await asyncio.sleep(delay)
+        except Exception as e:
+            print(f"Error sending zero-hop adverts: {e}")
+
+    async def flood_advert(self, count: int = 5, delay: float = 0.5, zero_hop: bool = True):
+        """
+        Send adverts. If zero_hop=True sends zero-hop; otherwise flood.
+        Prefer send_flood_advert() / send_zero_hop_advert() for scheduled use.
+        """
+        if zero_hop:
+            await self.send_zero_hop_advert(count=count, delay=delay)
+        else:
+            await self.send_flood_advert(count=count, delay=delay)
+
+    async def send_public_message(self, text: str, channel: int = 0) -> bool:
+        """Send a message to the public channel (channel 0)."""
+        if not self.meshcore:
+            return False
+        try:
+            result = await self.meshcore.commands.send_chan_msg(channel, text)
+            if result and result.type == EventType.ERROR:
+                print(f"Error sending public message: {result.payload}")
+                return False
+            return True
+        except Exception as e:
+            print(f"Error sending public message: {e}")
+            return False
     
     async def discover_and_add_nodes(self):
         """Discover new nodes using meshcore_py contacts."""
