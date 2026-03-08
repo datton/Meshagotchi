@@ -15,7 +15,7 @@ import game_engine
 import config
 
 
-# Welcome message sent to public channel on startup and once per day
+# Welcome message sent to public channel every day at noon
 WELCOME_MESSAGE = (
     "Meshagotchi is live and your pet is ready to meet you! "
     "Message /help to this address to get started"
@@ -33,11 +33,10 @@ class MeshAgotchiDaemon:
         self.last_notification_check = None
         self.notification_interval = 300  # 5 minutes in seconds
         self.last_flood_advert = None
-        self.flood_advert_interval = 20 * 60  # 20 minutes in seconds
+        self.flood_advert_interval = 24 * 60 * 60  # 24 hours in seconds
         self.last_zero_hop_advert = None
-        self.zero_hop_advert_interval = 5 * 60  # 5 minutes in seconds
-        self.last_welcome_message = None
-        self.welcome_message_interval = 24 * 3600  # 24 hours in seconds
+        self.zero_hop_advert_interval = 24 * 60 * 60  # 24 hours in seconds
+        self.last_welcome_message_date = None
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -78,9 +77,8 @@ class MeshAgotchiDaemon:
         self.last_flood_advert = datetime.now()
         self.last_zero_hop_advert = datetime.now()
         
-        # Send welcome message to public channel on startup
-        await self._send_welcome_message()
-        self.last_welcome_message = datetime.now()
+        # Initialize welcome message tracker
+        self.last_welcome_message_date = None
         
         print("MeshAgotchi ready. Listening for messages...")
     
@@ -133,7 +131,7 @@ class MeshAgotchiDaemon:
                     await self.mesh_handler.discover_and_add_nodes()
                     self.last_discovery_check = datetime.now()
                 
-                # Flood adverts every 20 minutes; zero-hop adverts every 5 minutes
+                # Flood and zero-hop adverts every 24 hours
                 now = datetime.now()
                 time_since_flood = (now - self.last_flood_advert).total_seconds()
                 if time_since_flood >= self.flood_advert_interval:
@@ -144,12 +142,11 @@ class MeshAgotchiDaemon:
                     await self.mesh_handler.send_zero_hop_advert(count=5, delay=0.5)
                     self.last_zero_hop_advert = now
                 
-                # Welcome message to public channel once per day
-                if self.last_welcome_message is not None:
-                    time_since_welcome = (now - self.last_welcome_message).total_seconds()
-                    if time_since_welcome >= self.welcome_message_interval:
+                # Welcome message to public channel once per day at noon local time
+                if now.hour == 12:
+                    if self.last_welcome_message_date is None or self.last_welcome_message_date != now.date():
                         await self._send_welcome_message()
-                        self.last_welcome_message = now
+                        self.last_welcome_message_date = now.date()
                 
                 # Check for periodic notifications
                 time_since_check = (now - self.last_notification_check).total_seconds()

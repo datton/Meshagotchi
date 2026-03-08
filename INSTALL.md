@@ -299,7 +299,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=meshogotchi
+User=meshagotchi
 WorkingDirectory=/home/meshagotchi/Meshagotchi
 ExecStart=/home/meshagotchi/Meshagotchi/venv/bin/python3 /home/meshagotchi/Meshagotchi/main.py
 Restart=always
@@ -320,7 +320,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=meshogotchi
+User=meshagotchi
 WorkingDirectory=/home/meshagotchi/Meshagotchi
 ExecStart=/usr/bin/python3 /home/meshagotchi/Meshagotchi/main.py
 Restart=always

@@ -763,7 +763,7 @@ class MeshHandler:
             return False
     
     async def send_flood_advert(self, count: int = 5, delay: float = 0.5):
-        """Send flood adverts (multi-hop). Use every 20 minutes."""
+        """Send flood adverts (multi-hop). Use every 24 hours."""
         if not self.meshcore:
             return
         try:
@@ -775,7 +775,7 @@ class MeshHandler:
             print(f"Error sending flood adverts: {e}")
 
     async def send_zero_hop_advert(self, count: int = 5, delay: float = 0.5):
-        """Send zero-hop adverts (local broadcast). Use every 5 minutes."""
+        """Send zero-hop adverts (local broadcast). Use every 24 hours."""
         if not self.meshcore:
             return
         try:

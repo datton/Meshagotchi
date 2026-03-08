@@ -185,7 +185,7 @@ The radio name is automatically set to "Meshagotchi" at startup.
 ### Advertising Schedule
 
 - Initial flood: 5 adverts at startup
-- Periodic floods: Every 4 hours (6 times per day)
+- Periodic floods: Every 24 hours
 - Node discovery: Every 60 seconds
 
 ## Development
